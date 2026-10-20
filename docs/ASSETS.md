@@ -15,9 +15,10 @@ Unreal Engine 5.8 install (`Templates/`):
 | Input actions and mapping contexts | `TemplateResources/High/Input` | `Content/Input` |
 | Level prototyping kit | `TemplateResources/High/LevelPrototyping` | `Content/LevelPrototyping` |
 | Manny / Quinn mannequins | `TemplateResources/High/Characters` | `Content/Characters/Mannequins` |
+| Door meshes, mirrored to their pre-5.8 path (the Lvl_Combat door still references it) | `TemplateResources/High/LevelPrototyping/Content/Interactable/Door/Meshes` | `Content/LevelPrototyping/Interactable/Door/Assets/Meshes` |
 
-Set `UE_ROOT` if the engine is installed in a non-default location. Existing files are kept;
-pass `--force` / `-Force` to overwrite.
+Set `UE_ROOT` if the engine is installed in a non-default location. Existing files are kept, so
+re-running the script only fills in what is missing; pass `--force` / `-Force` to overwrite.
 
 ## Third-party packs
 

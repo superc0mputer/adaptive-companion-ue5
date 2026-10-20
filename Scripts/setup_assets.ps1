@@ -47,4 +47,8 @@ Copy-Content (Join-Path $Tpl "TP_ThirdPerson\Content\__ExternalObjects__") "__Ex
 Copy-Content (Join-Path $Res "Input\Content")                              "Input"
 Copy-Content (Join-Path $Res "LevelPrototyping\Content")                   "LevelPrototyping"
 Copy-Content (Join-Path $Res "Characters\Content\Mannequins")              "Characters\Mannequins"
+
+# Lvl_Combat's BP_DoorFrame instance still references the mesh at its pre-5.8 path
+# (Interactable/Door/Assets/Meshes), which no template ships. Mirror it there.
+Copy-Content (Join-Path $Res "LevelPrototyping\Content\Interactable\Door\Meshes") "LevelPrototyping\Interactable\Door\Assets\Meshes"
 Write-Host "Done. Open AdaptiveCompanion\AdaptiveCompanion.uproject."

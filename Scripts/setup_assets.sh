@@ -32,7 +32,8 @@ copy() {
   local src="$1" dst="$CONTENT/$2"
   [[ -d "$src" ]] || { echo "error: missing $src" >&2; exit 1; }
   mkdir -p "$dst"
-  if [[ $FORCE -eq 1 ]]; then cp -R "$src/." "$dst/"; else cp -Rn "$src/." "$dst/"; fi
+  # macOS cp -n exits 1 when it skips existing files, so don't let that abort a re-run.
+  if [[ $FORCE -eq 1 ]]; then cp -R "$src/." "$dst/"; else cp -Rn "$src/." "$dst/" || true; fi
   echo "  -> Content/$2"
 }
 
@@ -44,5 +45,9 @@ copy "$TPL/TP_ThirdPerson/Content/__ExternalObjects__" __ExternalObjects__
 copy "$RES/Input/Content"                             Input
 copy "$RES/LevelPrototyping/Content"                  LevelPrototyping
 copy "$RES/Characters/Content/Mannequins"            Characters/Mannequins
+
+# Lvl_Combat's BP_DoorFrame instance still references the mesh at its pre-5.8 path
+# (Interactable/Door/Assets/Meshes), which no template ships. Mirror it there.
+copy "$RES/LevelPrototyping/Content/Interactable/Door/Meshes" LevelPrototyping/Interactable/Door/Assets/Meshes
 
 echo "Done. Open AdaptiveCompanion/AdaptiveCompanion.uproject."
