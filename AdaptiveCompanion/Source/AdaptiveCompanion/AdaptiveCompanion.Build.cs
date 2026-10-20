@@ -19,6 +19,9 @@ public class AdaptiveCompanion : ModuleRules
 			"GameplayStateTreeModule",
 			"UMG",
 			"Slate",
+			"GameplayTags",
+			"NavigationSystem",
+			"DeveloperSettings",
 			"AdaptiveCompanionFramework"
 		});
 
@@ -26,6 +29,7 @@ public class AdaptiveCompanion : ModuleRules
 
 		PublicIncludePaths.AddRange(new string[] {
 			"AdaptiveCompanion",
+			"AdaptiveCompanion/Companion",
 			"AdaptiveCompanion/Variant_Combat",
 			"AdaptiveCompanion/Variant_Combat/AI",
 			"AdaptiveCompanion/Variant_Combat/Animation",
