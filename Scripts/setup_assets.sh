@@ -32,7 +32,8 @@ copy() {
   local src="$1" dst="$CONTENT/$2"
   [[ -d "$src" ]] || { echo "error: missing $src" >&2; exit 1; }
   mkdir -p "$dst"
-  if [[ $FORCE -eq 1 ]]; then cp -R "$src/." "$dst/"; else cp -Rn "$src/." "$dst/"; fi
+  # macOS cp -n exits 1 when it skips existing files, so don't let that abort a re-run.
+  if [[ $FORCE -eq 1 ]]; then cp -R "$src/." "$dst/"; else cp -Rn "$src/." "$dst/" || true; fi
   echo "  -> Content/$2"
 }
 
