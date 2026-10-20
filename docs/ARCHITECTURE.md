@@ -53,3 +53,63 @@ plugin. If it names a specific actor, level, asset or rule of this prototype, it
 | Content | Allowed (`CanContainContent`), for framework-owned Data Assets and debug widgets |
 
 Game-specific assets live in `Content/Companion/`, which is allow-listed in `.gitignore`.
+
+## Companion (game module)
+
+The companion lives in the game module under `Source/AdaptiveCompanion/Companion/`, with its
+assets in `Content/Companion/`.
+
+| Class / asset | Role |
+|---|---|
+| `ACompanionCharacter` → `BP_Companion` | The companion pawn. The Blueprint only sets mesh (`SKM_Quinn_Simple`), Anim Blueprint (`ABP_Unarmed`) and StateTree |
+| `ACompanionAIController` | Runs the StateTree assigned on the possessed companion (`UStateTreeAIComponent`) and forwards events to it |
+| `ST_Companion` | StateTree (schema *StateTree AI Component*) that decides what the companion does |
+| `CompanionStateTreeTasks` | C++ StateTree nodes: tasks *Follow Player*, *Reposition Near Player*, *Intervention Placeholder*; conditions *Player Further Than*, *Companion Hidden From Player* |
+| `CompanionVisibility` | `IsVisibleToPlayer`: field of view + line of sight test against the player's camera |
+| `UCompanionSpawnSubsystem` | Spawns the companion next to the player in every game level that has none |
+| `UCompanionNavBoundsSubsystem` | Adds a NavMeshBoundsVolume around all walkable geometry if the level's own volumes don't cover it |
+| `UCompanionSettings` | Project Settings > Game > Companion: companion class, spawn offset, navigation bounds |
+
+Logic is in C++ nodes; the StateTree asset only wires them together and holds tunable parameters
+(distances, speeds, timeouts), so behavior can be tuned in the editor without recompiling.
+
+### StateTree layout
+
+```
+Root                       On Event Companion.Event.Intervention → Intervention
+├─ Default
+│  ├─ Follow               Follow Player
+│  │                         On State Failed → Reposition
+│  │                         On State Failed → Follow        (fallback while the companion is visible)
+│  │                         On Tick, Player Further Than 2500 cm → Reposition
+│  └─ Reposition           Enter condition: Companion Hidden From Player
+│                          Reposition Near Player
+│                            On State Completed → Follow
+└─ Intervention            Intervention Placeholder
+                             On State Completed → Default
+```
+
+- **Default** is the companion's normal behavior: follow the player at a distance, run when far
+  behind. If it gets stuck (wants to move but doesn't for 2 s) or falls more than 25 m behind,
+  it teleports to a spot near the player.
+- Teleporting only happens out of the player's sight, both where the companion leaves and where it
+  appears, the same rule Elizabeth uses in *BioShock Infinite* (she is teleported when she falls
+  behind "if it would not be noticeable to the player", GDC postmortem). If every spot is visible,
+  the companion keeps following and tries again later.
+- **Intervention** is a placeholder branch. Any event with the tag `Companion.Event.Intervention`
+  interrupts Default from the Root transition. The pipeline will send these events with a payload
+  (#24); until then the console command `Companion.TriggerIntervention` sends one for testing.
+
+### Spawning and navigation in the template levels
+
+`Lvl_ThirdPerson` and `Lvl_Combat` are Epic content restored by `Scripts/setup_assets.*` and not
+part of the repository, so nothing is placed in them by hand:
+
+- The companion is spawned at runtime next to the player (`UCompanionSpawnSubsystem`). A
+  companion placed in a level takes precedence.
+- `Lvl_ThirdPerson` has no navmesh and `Lvl_Combat` only one around the enemy arena.
+  `UCompanionNavBoundsSubsystem` adds a volume around everything that blocks pawns, and
+  `RuntimeGeneration=Dynamic` (`DefaultEngine.ini`) builds the navmesh at runtime. All AI share
+  this navmesh, so enemies in `Lvl_Combat` can now follow the player outside the arena.
+- The mannequin Anim Blueprint only plays locomotion while there is acceleration, so the companion
+  uses acceleration for path following (`bUseAccelerationForPaths`).

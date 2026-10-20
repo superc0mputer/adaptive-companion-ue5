@@ -33,12 +33,17 @@ Scripts/setup_assets.sh
 Then open `AdaptiveCompanion/AdaptiveCompanion.uproject` and let Unreal build the modules.
 Details: [docs/ASSETS.md](docs/ASSETS.md).
 
+Press Play in `Lvl_ThirdPerson` or `Lvl_Combat`: the companion is spawned next to you and follows
+you. `Companion.TriggerIntervention` in the console tests its intervention branch.
+
 ## Repository layout
 
 | Path | Contents |
 |---|---|
 | `AdaptiveCompanion/` | Unreal project (prototype game) |
 | `AdaptiveCompanion/Plugins/AdaptiveCompanionFramework/` | Game-independent framework plugin |
+| `AdaptiveCompanion/Source/AdaptiveCompanion/Companion/` | Companion character, AI controller and StateTree nodes |
+| `AdaptiveCompanion/Content/Companion/` | Our own assets (`BP_Companion`, `ST_Companion`), stored via Git LFS |
 | `Scripts/` | Setup scripts |
 | `docs/` | Notes and architecture documentation |
 

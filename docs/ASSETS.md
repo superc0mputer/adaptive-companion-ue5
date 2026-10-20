@@ -20,6 +20,15 @@ Unreal Engine 5.8 install (`Templates/`):
 Set `UE_ROOT` if the engine is installed in a non-default location. Existing files are kept, so
 re-running the script only fills in what is missing; pass `--force` / `-Force` to overwrite.
 
+## Our own content (in the repository)
+
+| Folder | Contents |
+|---|---|
+| `Content/Companion/` | `BP_Companion` (companion Blueprint), `ST_Companion` (companion StateTree) |
+
+These reference Epic's mannequin assets (`SKM_Quinn_Simple`, `ABP_Unarmed`), so run the setup
+script before opening them.
+
 ## Third-party packs
 
 None. If any are added, list them here (name, author, link, licence) and keep them out of git.
