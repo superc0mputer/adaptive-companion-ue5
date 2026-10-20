@@ -18,7 +18,8 @@ public class AdaptiveCompanion : ModuleRules
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"UMG",
-			"Slate"
+			"Slate",
+			"AdaptiveCompanionFramework"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });

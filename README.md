@@ -38,5 +38,9 @@ Details: [docs/ASSETS.md](docs/ASSETS.md).
 | Path | Contents |
 |---|---|
 | `AdaptiveCompanion/` | Unreal project (prototype game) |
+| `AdaptiveCompanion/Plugins/AdaptiveCompanionFramework/` | Game-independent framework plugin |
 | `Scripts/` | Setup scripts |
 | `docs/` | Notes and architecture documentation |
+
+The framework lives in its own runtime plugin so it can be reused in other UE5 projects; the
+game module depends on it, never the other way round. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

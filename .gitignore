@@ -29,7 +29,7 @@ AdaptiveCompanion/Plugins/**/Intermediate/
 # --- Epic content: restored from the engine by Scripts/setup_assets.* ---
 # Everything in Content/ is ignored except folders we author (add them below).
 AdaptiveCompanion/Content/*
-# !AdaptiveCompanion/Content/Companion/
+!AdaptiveCompanion/Content/Companion/
 
 # --- Local tooling ---
 .mcp.json

@@ -1,0 +1,34 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "Adaptive Companion Framework",
+	"Description": "Game-independent framework for a telemetry-driven adaptive AI companion: telemetry collection, feature extraction, assistance-need estimation and intervention selection.",
+	"Category": "AI",
+	"CreatedBy": "superc0mputer",
+	"CreatedByURL": "https://github.com/superc0mputer/adaptive-companion-ue5",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "AdaptiveCompanionFramework",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "StateTree",
+			"Enabled": true
+		},
+		{
+			"Name": "GameplayStateTree",
+			"Enabled": true
+		}
+	]
+}
