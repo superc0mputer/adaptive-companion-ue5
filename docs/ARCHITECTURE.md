@@ -47,12 +47,25 @@ plugin. If it names a specific actor, level, asset or rule of this prototype, it
 | | |
 |---|---|
 | Module | `AdaptiveCompanionFramework` (Runtime, loading phase Default) |
-| Engine dependencies | Core, CoreUObject, Engine, GameplayTags, AIModule, StateTreeModule, GameplayStateTreeModule |
+| Engine dependencies | Core, CoreUObject, Engine, GameplayTags, AIModule, StateTreeModule, GameplayStateTreeModule, DeveloperSettings, Json, JsonUtilities (public); EngineSettings, Projects (private) |
 | Plugin dependencies | StateTree, GameplayStateTree |
 | Log category | `LogAdaptiveCompanionFramework`, exported for use by games |
 | Content | Allowed (`CanContainContent`), for framework-owned Data Assets and debug widgets |
+| Stat group | `STATGROUP_AdaptiveCompanion` (`stat AdaptiveCompanion`) for per-frame costs |
 
 Game-specific assets live in `Content/Companion/`, which is allow-listed in `.gitignore`.
+
+### Session logging
+
+| Class | Role |
+|---|---|
+| `UAdaptiveLogSubsystem` | Game instance subsystem: one JSON Lines file per play session in `Saved/AdaptiveLogs/`, the API every pipeline stage logs through (`LogRecord`, `LogStruct`, Blueprint *Log Record*) |
+| `FAdaptiveSessionLogWriter` | Buffers lines in memory and writes them on a background task, in order |
+| `UAdaptiveLogLevelSubsystem` | Writes a `level_start` record whenever a level begins play |
+| `UAdaptiveLogSettings` | Project Settings > Plugins > Adaptive Companion Logging |
+| `AdaptiveLogRecordType` | Names of the record types (`session_start`, `signal`, `state`, ...) |
+
+Record format, file location, Python loading and measured cost: [LOGGING.md](LOGGING.md).
 
 ## Companion (game module)
 
