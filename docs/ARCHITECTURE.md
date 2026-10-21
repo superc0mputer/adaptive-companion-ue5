@@ -67,6 +67,16 @@ Game-specific assets live in `Content/Companion/`, which is allow-listed in `.gi
 
 Record format, file location, Python loading and measured cost: [LOGGING.md](LOGGING.md).
 
+### Debug overlay
+
+| Class | Role |
+|---|---|
+| `UAdaptiveDebugSubsystem` | Game instance subsystem: stores the values the stages push (`SetBar`, `SetNumber`, `SetText`) and draws them on the debug canvas while `ac.Debug` is 1 |
+| `FAdaptiveDebugData` | The values, grouped by section and kept in insertion order |
+| `EAdaptiveDebugSection` | One section per pipeline stage: Telemetry, Features, Need, Context, Selection, Behavior |
+
+Commands, sections and how stages write to it: [DEBUG_OVERLAY.md](DEBUG_OVERLAY.md).
+
 ## Companion (game module)
 
 The companion lives in the game module under `Source/AdaptiveCompanion/Companion/`, with its
@@ -111,7 +121,7 @@ Root                       On Event Companion.Event.Intervention → Interventio
   the companion keeps following and tries again later.
 - **Intervention** is a placeholder branch. Any event with the tag `Companion.Event.Intervention`
   interrupts Default from the Root transition. The pipeline will send these events with a payload
-  (#24); until then the console command `Companion.TriggerIntervention` sends one for testing.
+  (#19); until then the console command `Companion.TriggerIntervention` sends one for testing.
 
 ### Spawning and navigation in the template levels
 
