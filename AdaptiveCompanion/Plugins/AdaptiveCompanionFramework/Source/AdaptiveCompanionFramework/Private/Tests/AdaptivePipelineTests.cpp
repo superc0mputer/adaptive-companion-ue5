@@ -122,6 +122,32 @@ bool FAdaptivePipelineFeatureNeedTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptivePipelineSelectionTest, "AdaptiveCompanion.Pipeline.Selection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FAdaptivePipelineSelectionTest::RunTest(const FString& Parameters)
+{
+	UAdaptiveSelectionStage* Selection = NewObject<UAdaptiveSelectionStage>();
+
+	auto Select = [&](bool bElevated, bool bChanged)
+	{
+		FAdaptivePipelineFrame Frame;
+		Frame.Needs.Add(TEXT("Combat"), { 0.7, bElevated, bChanged });
+		Selection->Update(Frame);
+		return Frame.Intervention;
+	};
+
+	TestEqual(TEXT("Selected when the need becomes elevated"), Select(true, true), FName(TEXT("Intervention.Combat.Placeholder")));
+	TestTrue(TEXT("Not again while it stays elevated"), Select(true, false).IsNone());
+	TestTrue(TEXT("Not when it goes back to normal"), Select(false, true).IsNone());
+
+	FAdaptivePipelineFrame Empty;
+	Selection->Update(Empty);
+	TestTrue(TEXT("Nothing without the need"), Empty.Intervention.IsNone());
+
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptivePipelineConfigTest, "AdaptiveCompanion.Pipeline.Config",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
 

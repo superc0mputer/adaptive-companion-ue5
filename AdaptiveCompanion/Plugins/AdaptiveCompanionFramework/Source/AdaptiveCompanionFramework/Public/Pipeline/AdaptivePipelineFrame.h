@@ -51,6 +51,9 @@ struct FAdaptivePipelineFrame
 
 	/** 3 Need: state of every need dimension by name */
 	TMap<FName, FAdaptiveNeedState> Needs;
+
+	/** 5 Selection: the intervention to start in this update, NAME_None for none */
+	FName Intervention;
 };
 
 /**
