@@ -2,24 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "Pipeline/AdaptivePipelineStage.h"
+#include "Pipeline/AdaptiveFeatureStage.h"
+#include "Pipeline/AdaptiveNeedStage.h"
 #include "AdaptivePipelineStages.generated.h"
 
-// Stages 2-6 are still empty. Each one gets its own file once it is implemented.
-// Stage 1 (Telemetry) is in AdaptiveTelemetryStage.h.
-
-/** 2 Feature extraction: aggregates signals over time windows and normalizes them to [0, 1] (#13) */
-UCLASS(meta = (DisplayName = "Feature Stage"))
-class ADAPTIVECOMPANIONFRAMEWORK_API UAdaptiveFeatureStage : public UAdaptivePipelineStage
-{
-	GENERATED_BODY()
-};
-
-/** 3 Assistance-need estimation: combines features into one score per need dimension (#14, #15) */
-UCLASS(meta = (DisplayName = "Need Stage"))
-class ADAPTIVECOMPANIONFRAMEWORK_API UAdaptiveNeedStage : public UAdaptivePipelineStage
-{
-	GENERATED_BODY()
-};
+// Stages that are still empty are declared here; each one gets its own file once it is
+// implemented. Stages 2 and 3 are included above, stage 1 (Telemetry) is in AdaptiveTelemetryStage.h.
 
 /** 4 Context evaluation: what the player is currently doing and which actions are possible (#7) */
 UCLASS(meta = (DisplayName = "Context Stage"))

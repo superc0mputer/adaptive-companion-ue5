@@ -5,6 +5,8 @@
 #include "Pipeline/AdaptivePipelineFrame.h"
 #include "AdaptivePipelineStage.generated.h"
 
+class UAdaptiveDebugSubsystem;
+class UAdaptiveLogSubsystem;
 class UAdaptivePipelineSubsystem;
 
 /**
@@ -35,6 +37,14 @@ public:
 	UAdaptivePipelineSubsystem* GetPipeline() const { return Pipeline; }
 
 	virtual UWorld* GetWorld() const override;
+
+protected:
+
+	/** The session log, nullptr outside a session or if logging is disabled */
+	UAdaptiveLogSubsystem* GetLog() const;
+
+	/** The debug overlay, nullptr outside a session */
+	UAdaptiveDebugSubsystem* GetDebug() const;
 
 private:
 
