@@ -11,11 +11,11 @@ API the game reports telemetry through. It is part of the framework plugin
 | # | Stage | Class | Status |
 |---|---|---|---|
 | 1 | Telemetry | `UAdaptiveTelemetryStage` | Collects what the game reports, logs it, shows it in the overlay |
-| 2 | Features | `UAdaptiveFeatureStage` | Empty, #13 |
-| 3 | Assistance Need | `UAdaptiveNeedStage` | Empty, #14, #15 |
+| 2 | Features | `UAdaptiveFeatureStage` | Naive: one windowed sum ([first loop](#first-loop)), real features in #13 |
+| 3 | Assistance Need | `UAdaptiveNeedStage` | Naive: one dimension, one threshold, real estimation in #14, #15 |
 | 4 | Context | `UAdaptiveContextStage` | Empty, #7 |
-| 5 | Intervention Selection | `UAdaptiveSelectionStage` | Empty, #18 |
-| 6 | Behavior | `UAdaptiveBehaviorStage` | Empty, #19 |
+| 5 | Intervention Selection | `UAdaptiveSelectionStage` | Naive: one fixed intervention, utility selection in #18 |
+| 6 | Behavior | `UAdaptiveBehaviorStage` | Hands the intervention to the game and logs its phases, status tracking in #19 |
 
 Every update, `UAdaptivePipelineSubsystem` creates one `FAdaptivePipelineFrame` and passes it
 through the stages in this order. Each stage reads what the stages before it wrote and adds its
@@ -24,6 +24,8 @@ own output. Context (4) runs before Selection (5), which is the only stage that 
 ```
 Game ──ReportEvent / ReportValue──▶ 1 Telemetry ─▶ 2 Features ─▶ 3 Need ─▶ 4 Context ─▶ 5 Selection ─▶ 6 Behavior
                                          └─────────────── FAdaptivePipelineFrame, once per update ──────────────┘
+Game ◀──────────────────────────────────────── OnIntervention ───────────────────────────────────────────────┘
+     ──ReportInterventionPhase──▶ 6 Behavior
 ```
 
 All stages derive from `UAdaptivePipelineStage` and override `Initialize`, `Update(Frame)` and
@@ -63,6 +65,51 @@ From Blueprint: *Get Game Instance Subsystem (Adaptive Pipeline Subsystem)* → 
 Names use dots for grouping (`Combat.`, `Nav.`, `Camera.`, `Input.`). Which names exist is decided
 per signal group in #8–#10.
 
+## First loop
+
+The first version of stages 2–6 is deliberately naive (#6): one signal, one score, one
+threshold, one reaction, so the whole chain works end to end before each stage is replaced.
+
+```
+ACombatCharacter::TakeDamage ─ Combat.DamageTaken ─▶ Combat.DamageRecent ─▶ Combat Elevated ─▶ Intervention.Combat.Placeholder ─▶ companion runs to the player + bark
+                               (event, damage)       (sum over 5 s / 5)    (score ≥ 0.6)      (when Combat becomes Elevated)
+```
+
+| Stage | What it does now | Parameters (defaults) |
+|---|---|---|
+| 2 Features | Sums the values of one event over a sliding window, divides by a fixed maximum, clamps to [0, 1] | *Event Name* `Combat.DamageTaken`, *Feature Name* `Combat.DamageRecent`, *Window* 5 s, *Max Value* 5 |
+| 3 Need | One dimension whose score is one feature; *Elevated* at or above the threshold, otherwise *Normal* | *Need Name* `Combat`, *Feature Name* `Combat.DamageRecent`, *Threshold* 0.6 |
+| 5 Selection | Selects one intervention in the update where the need becomes Elevated; again only after it was Normal | *Need Name* `Combat`, *Intervention Name* `Intervention.Combat.Placeholder` |
+| 6 Behavior | Broadcasts the selected intervention on `OnIntervention` | |
+
+With the player's 5 HP and the enemies' 1 damage per hit, three hits within 5 s make the Combat
+need Elevated. The parameters are on the stage objects in the config asset, so they can be tuned
+without recompiling.
+
+Results are added to `FAdaptivePipelineFrame`: `Features` (name → value), `Needs` (name →
+`FAdaptiveNeedState` with `Score`, `bElevated`, `bChanged`) and `Intervention`.
+
+### Receiving interventions
+
+The framework doesn't know what an intervention does. The game listens to `OnIntervention`,
+carries it out, and reports its phases back so they end up in the session log:
+
+```cpp
+Pipeline->OnIntervention.AddUniqueDynamic(this, &AMyController::HandleIntervention);
+
+void AMyController::HandleIntervention(FName Intervention)
+{
+	// start the behavior, later:
+	Pipeline->ReportInterventionPhase(Intervention, TEXT("started"));
+	Pipeline->ReportInterventionPhase(Intervention, TEXT("ended"));
+}
+```
+
+In this game `ACompanionAIController` listens and moves its StateTree into the Intervention
+branch, whose *Intervention Placeholder* task runs to the player, shows a text bark above the
+companion and reports `started` and `ended` ([ARCHITECTURE.md](ARCHITECTURE.md#companion-game-module)).
+If nothing listens, the Behavior stage prints a warning.
+
 ## Update rate
 
 The stages run at *Update Rate* (default 10 Hz), not every frame. Updates are due every
@@ -86,6 +133,7 @@ Companion Pipeline (`UAdaptivePipelineSettings`, saved to `DefaultGame.ini`).
 | Pause With Game | true | No updates while the game is paused |
 | Stages › 1 Telemetry … 6 Behavior | The stage's base class | Which class runs each stage, with its parameters. An empty slot uses the base class |
 | Telemetry › Log Every Update | false | Log every value at every update instead of only on change |
+| Features, Need, Selection › ... | see [First loop](#first-loop) | Parameters of the naive stages |
 
 The stage objects in the asset are templates: each session creates its own copies, so stages can
 keep state. Without a selected asset (or if it can't be loaded) the pipeline runs with the
@@ -93,17 +141,39 @@ defaults and prints a message. *Enabled* in the project settings turns the pipel
 
 ## Session log
 
-The pipeline adds two record types to the session log ([LOGGING.md](LOGGING.md)):
+The pipeline adds these record types to the session log ([LOGGING.md](LOGGING.md)):
 
-| Type | Payload |
-|---|---|
-| `pipeline_start` | `config` (asset path or `defaults`), `update_rate`, `pause_with_game`, `stages` (class names in update order) |
-| `signal` | `name`, `kind` (`event` or `value`), `value` |
+| Type | Written | Payload |
+|---|---|---|
+| `pipeline_start` | At session start | `config` (asset path or `defaults`), `update_rate`, `pause_with_game`, `stages` (class names in update order) |
+| `signal` | When an event is reported, when a value changed | `name`, `kind` (`event` or `value`), `value` |
+| `feature` | When a feature changed | `name`, `value` |
+| `state` | When a need's level changed | `need`, `score`, `level` (`Normal` or `Elevated`). A need starts as Normal without a record |
+| `intervention` | At every phase of an intervention | `name`, `phase`; `selected` adds `need` and `score`, `dispatched` adds `receivers` (number of listeners) |
+
+The phases are `selected` (Selection), `dispatched` (Behavior, right before `OnIntervention`) and
+whatever the game reports; the companion reports `started` and `ended`.
 
 ```json
 {"seq":12,"t":8.28,"game_time":5.40,"type":"signal","payload":{"name":"Combat.DamageTaken","kind":"event","value":25}, ...}
 {"seq":19,"t":8.87,"game_time":5.96,"type":"signal","payload":{"name":"Player.Health","kind":"value","value":0.4}, ...}
 ```
+
+One pass through the loop, from a `-game` run of `Lvl_Combat` (payloads shortened):
+
+```json
+{"t":7.135,"type":"signal","payload":{"name":"Combat.DamageTaken","kind":"event","value":1}}   (3x)
+{"t":7.251,"type":"feature","payload":{"name":"Combat.DamageRecent","value":0.6}}
+{"t":7.251,"type":"state","payload":{"need":"Combat","score":0.6,"level":"Elevated"}}
+{"t":7.251,"type":"intervention","payload":{"name":"Intervention.Combat.Placeholder","phase":"selected", ...}}
+{"t":7.251,"type":"intervention","payload":{"name":"Intervention.Combat.Placeholder","phase":"dispatched","receivers":1}}
+{"t":7.255,"type":"intervention","payload":{"name":"Intervention.Combat.Placeholder","phase":"started"}}
+{"t":9.522,"type":"intervention","payload":{"name":"Intervention.Combat.Placeholder","phase":"ended"}}
+{"t":12.210,"type":"state","payload":{"need":"Combat","score":0,"level":"Normal"}}
+```
+
+The hit is processed at the next update (here 116 ms later, at most one interval at 10 Hz), and
+the companion starts on the next frame.
 
 Values are only logged on change, so for a regular time series forward-fill them:
 
@@ -115,7 +185,9 @@ values = sig[sig.kind == "value"].pivot_table(index="t", columns="name", values=
 ## Debug overlay
 
 Section *1 Telemetry* shows every value with its latest value, and every event with its latest
-value and how often it occurred, e.g. `Combat.DamageTaken  10.00 (2x)`.
+value and how often it occurred, e.g. `Combat.DamageTaken  10.00 (2x)`. *2 Features* and
+*3 Assistance Need* show the feature and the Combat score as bars plus the level, *5* the last
+selected intervention and *6* the latest phase of each intervention, both with their time.
 
 ## Testing
 
@@ -128,8 +200,13 @@ value and how often it occurred, e.g. `Combat.DamageTaken  10.00 (2x)`.
 `ac.Debug 1` then shows the values in the overlay; the session log has the matching `signal`
 records.
 
+The first loop runs without fighting by reporting three hits:
+`ac.Pipeline.Event Combat.DamageTaken 1` three times within 5 s. `Companion.TriggerIntervention`
+starts the companion's reaction directly, without the pipeline (as `Intervention.Console`).
+
 Automation tests `AdaptiveCompanion.Pipeline.FixedRate` (update counts at different frame rates,
-hitches), `.Telemetry` (event and value hand-off) and `.Config` (default stages):
+hitches), `.Telemetry` (event and value hand-off), `.FeatureNeed` (window, normalization,
+threshold), `.Selection` (selected once per elevation) and `.Config` (default stages):
 
 ```bash
 UnrealEditor-Cmd AdaptiveCompanion.uproject -ExecCmds="Automation RunTests AdaptiveCompanion.Pipeline; Quit" -unattended -nullrhi

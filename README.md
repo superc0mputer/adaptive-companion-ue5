@@ -34,14 +34,17 @@ Then open `AdaptiveCompanion/AdaptiveCompanion.uproject` and let Unreal build th
 Details: [docs/ASSETS.md](docs/ASSETS.md).
 
 Press Play in `Lvl_ThirdPerson` or `Lvl_Combat`: the companion is spawned next to you and follows
-you. `Companion.TriggerIntervention` in the console tests its intervention branch.
+you. In `Lvl_Combat`, take three hits within 5 s and the companion runs to you with a bark: the
+first, deliberately naive pass through the whole pipeline (damage → score → state → intervention
+→ companion reaction), every step logged with a timestamp.
 
 Each play session writes a log to `AdaptiveCompanion/Saved/AdaptiveLogs/<SessionId>.jsonl`, which
 loads in Python with `pd.read_json(path, lines=True)`. Details: [docs/LOGGING.md](docs/LOGGING.md).
 
 The game reports telemetry to the framework's pipeline, which runs its six stages at a fixed rate
-(10 Hz) configured in `Content/Companion/DA_PipelineConfig`. `ac.Pipeline.TestActor` spawns an
-actor that reports test values. Details: [docs/PIPELINE.md](docs/PIPELINE.md).
+(10 Hz) configured in `Content/Companion/DA_PipelineConfig` and hands the selected intervention
+back to the companion. `ac.Pipeline.TestActor` spawns an actor that reports test values.
+Details: [docs/PIPELINE.md](docs/PIPELINE.md#first-loop).
 
 `ac.Debug 1` in the console shows a debug overlay with the pipeline's live values;
 `ac.Debug.Demo` fills it with test values. Details: [docs/DEBUG_OVERLAY.md](docs/DEBUG_OVERLAY.md).
