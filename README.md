@@ -39,6 +39,9 @@ you. `Companion.TriggerIntervention` in the console tests its intervention branc
 Each play session writes a log to `AdaptiveCompanion/Saved/AdaptiveLogs/<SessionId>.jsonl`, which
 loads in Python with `pd.read_json(path, lines=True)`. Details: [docs/LOGGING.md](docs/LOGGING.md).
 
+`ac.Debug 1` in the console shows a debug overlay with the pipeline's live values;
+`ac.Debug.Demo` fills it with test values. Details: [docs/DEBUG_OVERLAY.md](docs/DEBUG_OVERLAY.md).
+
 ## Repository layout
 
 | Path | Contents |
@@ -48,7 +51,7 @@ loads in Python with `pd.read_json(path, lines=True)`. Details: [docs/LOGGING.md
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Companion/` | Companion character, AI controller and StateTree nodes |
 | `AdaptiveCompanion/Content/Companion/` | Our own assets (`BP_Companion`, `ST_Companion`), stored via Git LFS |
 | `Scripts/` | Setup scripts |
-| `docs/` | Architecture, assets and logging documentation |
+| `docs/` | Architecture, assets, logging and debug overlay documentation |
 
 The framework lives in its own runtime plugin so it can be reused in other UE5 projects; the
 game module depends on it, never the other way round. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
