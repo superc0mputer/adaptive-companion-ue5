@@ -15,6 +15,7 @@
 #include "TimerManager.h"
 #include "Engine/LocalPlayer.h"
 #include "CombatPlayerController.h"
+#include "Pipeline/AdaptivePipelineSubsystem.h"
 
 ACombatCharacter::ACombatCharacter()
 {
@@ -186,6 +187,12 @@ void ACombatCharacter::ResetHP()
 
 	// update the life bar
 	LifeBarWidget->SetLifePercentage(1.0f);
+
+	// report full health to the adaptive companion pipeline
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(this))
+	{
+		Pipeline->ReportValue(TEXT("Player.Health"), 1.0);
+	}
 }
 
 void ACombatCharacter::ComboAttack()
@@ -467,6 +474,13 @@ float ACombatCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dama
 
 	// reduce the current HP
 	CurrentHP -= Damage;
+
+	// report the hit to the adaptive companion pipeline. Every damage source ends up here
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(this))
+	{
+		Pipeline->ReportEvent(TEXT("Combat.DamageTaken"), Damage);
+		Pipeline->ReportValue(TEXT("Player.Health"), FMath::Max(CurrentHP, 0.0f) / MaxHP);
+	}
 
 	// have we run out of HP?
 	if (CurrentHP <= 0.0f)
