@@ -28,7 +28,7 @@ public:
 
 	/** The need is Elevated while the score is at or above this */
 	UPROPERTY(EditAnywhere, Category = "Need", meta = (ClampMin = "0", ClampMax = "1"))
-	float Threshold = 0.6f;
+	double Threshold = 0.6;
 
 	virtual void Update(FAdaptivePipelineFrame& Frame) override;
 
