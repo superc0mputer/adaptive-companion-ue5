@@ -14,7 +14,15 @@ public class AdaptiveCompanionFramework : ModuleRules
 			"GameplayTags",
 			"AIModule",
 			"StateTreeModule",
-			"GameplayStateTreeModule"
+			"GameplayStateTreeModule",
+			"DeveloperSettings",
+			"Json",
+			"JsonUtilities"
+		});
+
+		PrivateDependencyModuleNames.AddRange(new string[] {
+			"EngineSettings",
+			"Projects"
 		});
 	}
 }
