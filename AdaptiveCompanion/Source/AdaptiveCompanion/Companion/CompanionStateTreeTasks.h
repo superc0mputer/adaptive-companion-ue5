@@ -139,17 +139,43 @@ struct FCompanionInterventionPlaceholderInstanceData
 	UPROPERTY(EditAnywhere, Category = "Context")
 	TObjectPtr<AAIController> Controller;
 
-	/** How long the placeholder intervention lasts */
+	/** Minimum time the intervention lasts, even if the companion is already next to the player */
 	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "s"))
 	float Duration = 2.0f;
 
+	/** The intervention ends after this long even if the companion hasn't reached the player */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "s"))
+	float MaxDuration = 6.0f;
+
+	/** Speed while running to the player */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "cm/s"))
+	float RunSpeed = 750.0f;
+
+	/** How close the companion gets to the player */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "cm"))
+	float AcceptanceRadius = 150.0f;
+
+	/** Text shown above the companion's head */
+	UPROPERTY(EditAnywhere, Category = "Parameter")
+	FString Bark = TEXT("Hang in there, I'm coming!");
+
+	/** How long the bark is shown */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "s"))
+	float BarkDuration = 3.0f;
+
 	/** Time spent in the intervention so far */
 	float ElapsedTime = 0.0f;
+
+	/** The intervention being carried out, reported back to the pipeline */
+	FName Intervention;
 };
 
 /**
- *  Placeholder for interventions: the companion stops, waits for a moment and then succeeds.
- *  Replaced by real behaviors once the pipeline can select interventions (#24).
+ *  Placeholder for interventions, the same for every intervention: the companion runs to the player
+ *  and shows a text bark above its head. Succeeds once it has arrived and Duration has passed.
+ *  Reports "started" and "ended" to the pipeline, so the session log shows the reaction.
+ *  The bark is debug text, so it doesn't show in Shipping builds.
+ *  Replaced by real behaviors in #24.
  */
 USTRUCT(meta = (DisplayName = "Intervention Placeholder", Category = "Companion"))
 struct FCompanionInterventionPlaceholderTask : public FStateTreeTaskCommonBase
