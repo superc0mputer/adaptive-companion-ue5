@@ -46,9 +46,11 @@ NaN and infinity in a payload are written as `null`, so every line stays valid J
 |---|---|---|
 | `session_start` | Logger, first record | `project`, `project_version`, `plugin_version`, `engine_version`, `build_config`, `platform`, `editor`, `start_utc` |
 | `level_start` | Logger, when a level begins play | `map`, `game_mode` |
+| `pipeline_start` | Pipeline, at session start | `config`, `update_rate`, `pause_with_game`, `stages` ([PIPELINE.md](PIPELINE.md)) |
 | `marker` | `ac.Log.Marker <text>` | `text` |
 | `session_end` | Logger, last record | `duration` (s), `records` (including this one) |
-| `signal`, `feature`, `state`, `context`, `intervention` | Pipeline stages (from #5 on) | Defined by each stage |
+| `signal` | Telemetry stage, for every reported event and every changed value | `name`, `kind` (`event` / `value`), `value` |
+| `feature`, `state`, `context`, `intervention` | Later pipeline stages | Defined by each stage |
 
 The type names are in `AdaptiveLogRecordTypes.h`. Games may log their own types.
 

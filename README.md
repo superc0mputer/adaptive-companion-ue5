@@ -39,6 +39,10 @@ you. `Companion.TriggerIntervention` in the console tests its intervention branc
 Each play session writes a log to `AdaptiveCompanion/Saved/AdaptiveLogs/<SessionId>.jsonl`, which
 loads in Python with `pd.read_json(path, lines=True)`. Details: [docs/LOGGING.md](docs/LOGGING.md).
 
+The game reports telemetry to the framework's pipeline, which runs its six stages at a fixed rate
+(10 Hz) configured in `Content/Companion/DA_PipelineConfig`. `ac.Pipeline.TestActor` spawns an
+actor that reports test values. Details: [docs/PIPELINE.md](docs/PIPELINE.md).
+
 `ac.Debug 1` in the console shows a debug overlay with the pipeline's live values;
 `ac.Debug.Demo` fills it with test values. Details: [docs/DEBUG_OVERLAY.md](docs/DEBUG_OVERLAY.md).
 
@@ -49,9 +53,9 @@ loads in Python with `pd.read_json(path, lines=True)`. Details: [docs/LOGGING.md
 | `AdaptiveCompanion/` | Unreal project (prototype game) |
 | `AdaptiveCompanion/Plugins/AdaptiveCompanionFramework/` | Game-independent framework plugin |
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Companion/` | Companion character, AI controller and StateTree nodes |
-| `AdaptiveCompanion/Content/Companion/` | Our own assets (`BP_Companion`, `ST_Companion`), stored via Git LFS |
+| `AdaptiveCompanion/Content/Companion/` | Our own assets (`BP_Companion`, `ST_Companion`, `DA_PipelineConfig`), stored via Git LFS |
 | `Scripts/` | Setup scripts |
-| `docs/` | Architecture, assets, logging and debug overlay documentation |
+| `docs/` | Architecture, pipeline, assets, logging and debug overlay documentation |
 
 The framework lives in its own runtime plugin so it can be reused in other UE5 projects; the
 game module depends on it, never the other way round. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

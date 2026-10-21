@@ -55,6 +55,20 @@ plugin. If it names a specific actor, level, asset or rule of this prototype, it
 
 Game-specific assets live in `Content/Companion/`, which is allow-listed in `.gitignore`.
 
+### Pipeline
+
+| Class | Role |
+|---|---|
+| `UAdaptivePipelineSubsystem` | Game instance subsystem: runs the six stages in order at a fixed rate (default 10 Hz) and takes the game's telemetry (`ReportEvent`, `ReportValue`) |
+| `UAdaptivePipelineStage` | Base class of the stages: `Initialize`, `Update(Frame)`, `Deinitialize` |
+| `UAdaptiveTelemetryStage`, `UAdaptiveFeatureStage`, `UAdaptiveNeedStage`, `UAdaptiveContextStage`, `UAdaptiveSelectionStage`, `UAdaptiveBehaviorStage` | The six stages. Only Telemetry does something yet; the others are empty until their issues |
+| `FAdaptivePipelineFrame` | Data passed through the stages in one update |
+| `UAdaptivePipelineConfig` | Data asset with the framework settings: update rate and the class and parameters of each stage. This game's instance is `Content/Companion/DA_PipelineConfig` |
+| `UAdaptivePipelineSettings` | Project Settings > Plugins > Adaptive Companion Pipeline: selects the config asset |
+| `AAdaptiveTelemetryTestActor` | Reports test telemetry (`ac.Pipeline.TestActor`) |
+
+Stages, telemetry API, update rate and config: [PIPELINE.md](PIPELINE.md).
+
 ### Session logging
 
 | Class | Role |
