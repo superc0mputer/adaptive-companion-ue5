@@ -18,6 +18,9 @@ namespace AdaptiveLogRecordType
 	inline const FString LevelStart = TEXT("level_start");
 	inline const FString LevelEnd = TEXT("level_end");
 
+	/** The pipeline started: update rate, config asset and stage classes */
+	inline const FString PipelineStart = TEXT("pipeline_start");
+
 	/** Manual marker, e.g. from the console command ac.Log.Marker */
 	inline const FString Marker = TEXT("marker");
 
