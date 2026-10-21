@@ -12,6 +12,19 @@ struct FAdaptiveTelemetryEvent
 	double Time = 0.0;
 };
 
+/** One assistance-need dimension, e.g. "Combat" */
+struct FAdaptiveNeedState
+{
+	/** How much help the player needs in this dimension, in [0, 1] */
+	double Score = 0.0;
+
+	/** True while the score is above the stage's threshold */
+	bool bElevated = false;
+
+	/** True only in the update where bElevated changed */
+	bool bChanged = false;
+};
+
 /**
  *  The data passed through the stages in one pipeline update. Every stage reads what the stages
  *  before it wrote and adds its own output. Stages add their fields here as they are implemented.
@@ -32,6 +45,15 @@ struct FAdaptivePipelineFrame
 
 	/** 1 Telemetry: latest value of every continuous signal reported so far */
 	TMap<FName, double> Values;
+
+	/** 2 Features: features in [0, 1] by name */
+	TMap<FName, double> Features;
+
+	/** 3 Need: state of every need dimension by name */
+	TMap<FName, FAdaptiveNeedState> Needs;
+
+	/** 5 Selection: the intervention to start in this update, NAME_None for none */
+	FName Intervention;
 };
 
 /**

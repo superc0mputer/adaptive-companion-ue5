@@ -27,11 +27,11 @@ One section per pipeline stage, in pipeline order. A section without values show
 | Section | Filled by |
 |---|---|
 | 1 Telemetry | Raw signals (#5, #8–#10) |
-| 2 Features | Windowed, normalized features (#13) |
-| 3 Assistance Need | Dimension scores and level (#14, #15) |
+| 2 Features | Windowed, normalized features (now: `Combat.DamageRecent`; all features in #13) |
+| 3 Assistance Need | Dimension scores and level (now: `Combat` and `Combat level`; #14, #15) |
 | 4 Context | Scenario, gameplay context (#7) |
-| 5 Intervention Selection | Candidates with utilities, selected intervention, cooldowns (#18) |
-| 6 Behavior | What the companion is doing (#19) |
+| 5 Intervention Selection | Last selected intervention and when (candidates with utilities and cooldowns in #18) |
+| 6 Behavior | Latest phase of each intervention and when (#19) |
 
 ## Writing values
 

@@ -59,9 +59,9 @@ Game-specific assets live in `Content/Companion/`, which is allow-listed in `.gi
 
 | Class | Role |
 |---|---|
-| `UAdaptivePipelineSubsystem` | Game instance subsystem: runs the six stages in order at a fixed rate (default 10 Hz) and takes the game's telemetry (`ReportEvent`, `ReportValue`) |
+| `UAdaptivePipelineSubsystem` | Game instance subsystem: runs the six stages in order at a fixed rate (default 10 Hz), takes the game's telemetry (`ReportEvent`, `ReportValue`) and hands selected interventions back (`OnIntervention`, `ReportInterventionPhase`) |
 | `UAdaptivePipelineStage` | Base class of the stages: `Initialize`, `Update(Frame)`, `Deinitialize` |
-| `UAdaptiveTelemetryStage`, `UAdaptiveFeatureStage`, `UAdaptiveNeedStage`, `UAdaptiveContextStage`, `UAdaptiveSelectionStage`, `UAdaptiveBehaviorStage` | The six stages. Only Telemetry does something yet; the others are empty until their issues |
+| `UAdaptiveTelemetryStage`, `UAdaptiveFeatureStage`, `UAdaptiveNeedStage`, `UAdaptiveContextStage`, `UAdaptiveSelectionStage`, `UAdaptiveBehaviorStage` | The six stages. Features, Need and Selection are deliberately naive (one damage feature, one threshold, one intervention) until their issues; Context is empty |
 | `FAdaptivePipelineFrame` | Data passed through the stages in one update |
 | `UAdaptivePipelineConfig` | Data asset with the framework settings: update rate and the class and parameters of each stage. This game's instance is `Content/Companion/DA_PipelineConfig` |
 | `UAdaptivePipelineSettings` | Project Settings > Plugins > Adaptive Companion Pipeline: selects the config asset |
@@ -99,7 +99,7 @@ assets in `Content/Companion/`.
 | Class / asset | Role |
 |---|---|
 | `ACompanionCharacter` → `BP_Companion` | The companion pawn. The Blueprint only sets mesh (`SKM_Quinn_Simple`), Anim Blueprint (`ABP_Unarmed`) and StateTree |
-| `ACompanionAIController` | Runs the StateTree assigned on the possessed companion (`UStateTreeAIComponent`) and forwards events to it |
+| `ACompanionAIController` | Runs the StateTree assigned on the possessed companion (`UStateTreeAIComponent`) and forwards events to it. Listens to the pipeline's `OnIntervention` and starts the Intervention branch |
 | `ST_Companion` | StateTree (schema *StateTree AI Component*) that decides what the companion does |
 | `CompanionStateTreeTasks` | C++ StateTree nodes: tasks *Follow Player*, *Reposition Near Player*, *Intervention Placeholder*; conditions *Player Further Than*, *Companion Hidden From Player* |
 | `CompanionVisibility` | `IsVisibleToPlayer`: field of view + line of sight test against the player's camera |
@@ -134,8 +134,12 @@ Root                       On Event Companion.Event.Intervention → Interventio
   behind "if it would not be noticeable to the player", GDC postmortem). If every spot is visible,
   the companion keeps following and tries again later.
 - **Intervention** is a placeholder branch. Any event with the tag `Companion.Event.Intervention`
-  interrupts Default from the Root transition. The pipeline will send these events with a payload
-  (#19); until then the console command `Companion.TriggerIntervention` sends one for testing.
+  interrupts Default from the Root transition. `ACompanionAIController` sends it whenever the
+  pipeline selects an intervention, and remembers which one. For now every intervention runs the
+  same *Intervention Placeholder* task: the companion runs to the player (750 cm/s, up to 6 s),
+  shows a text bark above its head ("Hang in there, I'm coming!", debug text, so not in Shipping)
+  and reports `started` / `ended` to the pipeline. Real behaviors per intervention come in #24.
+  `Companion.TriggerIntervention` starts it without the pipeline for testing.
 
 ### Spawning and navigation in the template levels
 

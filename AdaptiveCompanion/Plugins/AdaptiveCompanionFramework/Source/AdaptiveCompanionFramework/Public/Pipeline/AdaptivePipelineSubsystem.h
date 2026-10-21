@@ -6,11 +6,14 @@
 #include "Pipeline/AdaptivePipelineFrame.h"
 #include "AdaptivePipelineSubsystem.generated.h"
 
+class UAdaptiveBehaviorStage;
 class UAdaptiveDebugSubsystem;
 class UAdaptiveLogSubsystem;
 class UAdaptivePipelineConfig;
 class UAdaptivePipelineStage;
 class UAdaptiveTelemetryStage;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAdaptiveInterventionDelegate, FName, Intervention);
 
 /**
  *  The framework's core loop. Runs the six pipeline stages in order at a fixed rate (not every
@@ -18,6 +21,9 @@ class UAdaptiveTelemetryStage;
  *
  *    ReportEvent("Combat.DamageTaken", 25)   something happened, optionally with a magnitude
  *    ReportValue("Player.Health", 0.4)       current value of something continuous
+ *
+ *  The selected interventions come back to the game through OnIntervention; the game carries them
+ *  out and reports their phases with ReportInterventionPhase.
  *
  *  Names are plain FNames chosen by the game, so the framework needs no game types. Update rate
  *  and stage classes come from the config asset selected in UAdaptivePipelineSettings.
@@ -44,6 +50,14 @@ public:
 	/** Reports the current value of a continuous signal, e.g. health. Only the latest value per update counts, so calling it every frame is fine */
 	UFUNCTION(BlueprintCallable, Category = "Adaptive Companion|Telemetry")
 	void ReportValue(FName Name, double Value);
+
+	/** Called when the pipeline selected an intervention. The game carries it out, e.g. by sending its companion an event */
+	UPROPERTY(BlueprintAssignable, Category = "Adaptive Companion|Behavior")
+	FAdaptiveInterventionDelegate OnIntervention;
+
+	/** Reports a phase of an intervention received through OnIntervention, e.g. "started" or "ended". Logged as an intervention record */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Companion|Behavior")
+	void ReportInterventionPhase(FName Intervention, FName Phase);
 
 	/** Runs all stages once, now. Normally called at the configured rate */
 	void Update();
@@ -81,6 +95,9 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UAdaptiveTelemetryStage> Telemetry;
+
+	UPROPERTY()
+	TObjectPtr<UAdaptiveBehaviorStage> Behavior;
 
 	UPROPERTY()
 	TObjectPtr<UAdaptiveLogSubsystem> Log;

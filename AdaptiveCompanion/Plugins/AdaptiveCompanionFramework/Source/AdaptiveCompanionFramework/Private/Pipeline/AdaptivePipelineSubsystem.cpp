@@ -48,7 +48,7 @@ void UAdaptivePipelineSubsystem::Initialize(FSubsystemCollectionBase& Collection
 	CreateStage(Config->Need.Get());
 	CreateStage(Config->Context.Get());
 	CreateStage(Config->Selection.Get());
-	CreateStage(Config->Behavior.Get());
+	Behavior = CreateStage(Config->Behavior.Get());
 
 	for (UAdaptivePipelineStage* Stage : Stages)
 	{
@@ -88,6 +88,7 @@ void UAdaptivePipelineSubsystem::Deinitialize()
 	}
 	Stages.Reset();
 	Telemetry = nullptr;
+	Behavior = nullptr;
 
 	Super::Deinitialize();
 }
@@ -116,6 +117,14 @@ void UAdaptivePipelineSubsystem::ReportValue(FName Name, double Value)
 	if (Telemetry)
 	{
 		Telemetry->ReportValue(Name, Value);
+	}
+}
+
+void UAdaptivePipelineSubsystem::ReportInterventionPhase(FName Intervention, FName Phase)
+{
+	if (Behavior)
+	{
+		Behavior->ReportPhase(Intervention, Phase);
 	}
 }
 

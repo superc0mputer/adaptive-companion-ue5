@@ -50,7 +50,10 @@ NaN and infinity in a payload are written as `null`, so every line stays valid J
 | `marker` | `ac.Log.Marker <text>` | `text` |
 | `session_end` | Logger, last record | `duration` (s), `records` (including this one) |
 | `signal` | Telemetry stage, for every reported event and every changed value | `name`, `kind` (`event` / `value`), `value` |
-| `feature`, `state`, `context`, `intervention` | Later pipeline stages | Defined by each stage |
+| `feature` | Feature stage, when a feature changed | `name`, `value` |
+| `state` | Need stage, when a need's level changed | `need`, `score`, `level` (`Normal` / `Elevated`) |
+| `intervention` | Selection and Behavior stages, and the game through `ReportInterventionPhase` | `name`, `phase` (`selected`, `dispatched`, `started`, `ended`), more fields per phase ([PIPELINE.md](PIPELINE.md)) |
+| `context` | Context stage (#7) | Defined by the stage |
 
 The type names are in `AdaptiveLogRecordTypes.h`. Games may log their own types.
 

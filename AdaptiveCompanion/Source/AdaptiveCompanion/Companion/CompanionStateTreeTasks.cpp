@@ -1,4 +1,5 @@
 #include "CompanionStateTreeTasks.h"
+#include "CompanionAIController.h"
 #include "CompanionCharacter.h"
 #include "CompanionVisibility.h"
 #include "StateTreeExecutionContext.h"
@@ -8,7 +9,9 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerController.h"
+#include "DrawDebugHelpers.h"
 #include "AdaptiveCompanion.h"
+#include "Pipeline/AdaptivePipelineSubsystem.h"
 
 namespace
 {
@@ -170,12 +173,31 @@ EStateTreeRunStatus FCompanionInterventionPlaceholderTask::EnterState(FStateTree
 	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
 	InstanceData.ElapsedTime = 0.0f;
 
-	if (InstanceData.Controller)
+	ACompanionAIController* Controller = Cast<ACompanionAIController>(InstanceData.Controller);
+	ACharacter* Companion = Controller ? Controller->GetPawn<ACharacter>() : nullptr;
+	if (!Companion)
 	{
-		InstanceData.Controller->StopMovement();
+		return EStateTreeRunStatus::Failed;
 	}
 
-	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion intervention started (placeholder)."));
+	InstanceData.Intervention = Controller->GetCurrentIntervention();
+
+	Controller->StopMovement();
+	if (APawn* Player = UGameplayStatics::GetPlayerPawn(Controller, 0))
+	{
+		Companion->GetCharacterMovement()->MaxWalkSpeed = InstanceData.RunSpeed;
+		Controller->MoveToActor(Player, InstanceData.AcceptanceRadius, true, true, false, nullptr, true);
+	}
+
+	// attached to the companion, so it moves along
+	DrawDebugString(Companion->GetWorld(), FVector(0.0f, 0.0f, 120.0f), InstanceData.Bark, Companion, FColor::White, InstanceData.BarkDuration, true, 1.5f);
+
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(Companion))
+	{
+		Pipeline->ReportInterventionPhase(InstanceData.Intervention, TEXT("started"));
+	}
+
+	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion intervention '%s' started (placeholder)."), *InstanceData.Intervention.ToString());
 	return EStateTreeRunStatus::Running;
 }
 
@@ -184,12 +206,28 @@ EStateTreeRunStatus FCompanionInterventionPlaceholderTask::Tick(FStateTreeExecut
 	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
 	InstanceData.ElapsedTime += DeltaTime;
 
-	return InstanceData.ElapsedTime >= InstanceData.Duration ? EStateTreeRunStatus::Succeeded : EStateTreeRunStatus::Running;
+	const bool bArrived = !InstanceData.Controller || InstanceData.Controller->GetMoveStatus() != EPathFollowingStatus::Moving;
+	const bool bDone = (bArrived && InstanceData.ElapsedTime >= InstanceData.Duration) || InstanceData.ElapsedTime >= InstanceData.MaxDuration;
+
+	return bDone ? EStateTreeRunStatus::Succeeded : EStateTreeRunStatus::Running;
 }
 
 void FCompanionInterventionPlaceholderTask::ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const
 {
-	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion intervention ended (placeholder)."));
+	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+
+	if (InstanceData.Controller)
+	{
+		InstanceData.Controller->StopMovement();
+		ResetCompanionSpeed(InstanceData.Controller->GetPawn());
+	}
+
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(InstanceData.Controller))
+	{
+		Pipeline->ReportInterventionPhase(InstanceData.Intervention, TEXT("ended"));
+	}
+
+	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion intervention '%s' ended (placeholder)."), *InstanceData.Intervention.ToString());
 }
 
 #if WITH_EDITOR

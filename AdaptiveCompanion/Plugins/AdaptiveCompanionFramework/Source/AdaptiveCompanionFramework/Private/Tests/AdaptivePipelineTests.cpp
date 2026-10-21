@@ -73,6 +73,81 @@ bool FAdaptivePipelineTelemetryTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptivePipelineFeatureNeedTest, "AdaptiveCompanion.Pipeline.FeatureNeed",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FAdaptivePipelineFeatureNeedTest::RunTest(const FString& Parameters)
+{
+	// defaults: damage in the last 5 s / 5, Combat elevated from 0.6
+	UAdaptiveFeatureStage* Features = NewObject<UAdaptiveFeatureStage>();
+	UAdaptiveNeedStage* Need = NewObject<UAdaptiveNeedStage>();
+
+	auto Run = [&](double Time, TArray<FAdaptiveTelemetryEvent> Events)
+	{
+		FAdaptivePipelineFrame Frame;
+		Frame.Time = Time;
+		Frame.Events = MoveTemp(Events);
+		Features->Update(Frame);
+		Need->Update(Frame);
+		return Frame;
+	};
+
+	FAdaptivePipelineFrame Frame = Run(0.0, {});
+	TestEqual(TEXT("No damage, feature 0"), Frame.Features.FindRef(TEXT("Combat.DamageRecent")), 0.0);
+	TestFalse(TEXT("No damage, not elevated"), Frame.Needs.FindRef(TEXT("Combat")).bElevated);
+
+	Frame = Run(1.0, { { TEXT("Combat.DamageTaken"), 1.0, 0.9 }, { TEXT("Other.Event"), 100.0, 0.9 } });
+	TestEqual(TEXT("Only the configured event counts"), Frame.Features.FindRef(TEXT("Combat.DamageRecent")), 0.2);
+
+	Frame = Run(2.0, { { TEXT("Combat.DamageTaken"), 1.0, 1.9 } });
+	TestFalse(TEXT("0.4 is below the threshold"), Frame.Needs.FindRef(TEXT("Combat")).bElevated);
+
+	Frame = Run(3.0, { { TEXT("Combat.DamageTaken"), 1.0, 2.9 } });
+	TestEqual(TEXT("Damage is summed over the window"), Frame.Features.FindRef(TEXT("Combat.DamageRecent")), 0.6, 1e-9);
+	TestTrue(TEXT("0.6 is elevated"), Frame.Needs.FindRef(TEXT("Combat")).bElevated);
+	TestTrue(TEXT("Change is flagged"), Frame.Needs.FindRef(TEXT("Combat")).bChanged);
+
+	Frame = Run(3.1, {});
+	TestTrue(TEXT("Still elevated"), Frame.Needs.FindRef(TEXT("Combat")).bElevated);
+	TestFalse(TEXT("Change is only flagged once"), Frame.Needs.FindRef(TEXT("Combat")).bChanged);
+
+	Frame = Run(20.0, { { TEXT("Combat.DamageTaken"), 30.0, 20.0 } });
+	TestEqual(TEXT("Clamped to 1"), Frame.Features.FindRef(TEXT("Combat.DamageRecent")), 1.0);
+
+	Frame = Run(25.0, {});
+	TestEqual(TEXT("Damage leaves the window after 5 s"), Frame.Features.FindRef(TEXT("Combat.DamageRecent")), 0.0);
+	TestFalse(TEXT("Back to normal"), Frame.Needs.FindRef(TEXT("Combat")).bElevated);
+	TestTrue(TEXT("Change back is flagged"), Frame.Needs.FindRef(TEXT("Combat")).bChanged);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptivePipelineSelectionTest, "AdaptiveCompanion.Pipeline.Selection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FAdaptivePipelineSelectionTest::RunTest(const FString& Parameters)
+{
+	UAdaptiveSelectionStage* Selection = NewObject<UAdaptiveSelectionStage>();
+
+	auto Select = [&](bool bElevated, bool bChanged)
+	{
+		FAdaptivePipelineFrame Frame;
+		Frame.Needs.Add(TEXT("Combat"), { 0.7, bElevated, bChanged });
+		Selection->Update(Frame);
+		return Frame.Intervention;
+	};
+
+	TestEqual(TEXT("Selected when the need becomes elevated"), Select(true, true), FName(TEXT("Intervention.Combat.Placeholder")));
+	TestTrue(TEXT("Not again while it stays elevated"), Select(true, false).IsNone());
+	TestTrue(TEXT("Not when it goes back to normal"), Select(false, true).IsNone());
+
+	FAdaptivePipelineFrame Empty;
+	Selection->Update(Empty);
+	TestTrue(TEXT("Nothing without the need"), Empty.Intervention.IsNone());
+
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptivePipelineConfigTest, "AdaptiveCompanion.Pipeline.Config",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
 
