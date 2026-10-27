@@ -113,6 +113,19 @@ from a subsystem in `Source/AdaptiveCompanion/Telemetry/`.
 | `ACombatEnemy` | Reports `Combat.EnemyKilled` |
 | `UCombatTelemetrySubsystem` | World subsystem, runs in every game level without placing anything. Reports `Combat.EnemiesNearby` and `Combat.NearestEnemyDistance` at the check interval of `UGameplayContextSettings`, within its combat radius |
 
+## Navigation telemetry (game module)
+
+The game reports how the player moves toward the current objective
+([PIPELINE.md](PIPELINE.md#navigation-telemetry)). Objectives are in
+`Source/AdaptiveCompanion/Navigation/`, the telemetry subsystem in `Source/AdaptiveCompanion/Telemetry/`.
+
+| Class | Role |
+|---|---|
+| `ANavigationObjective` | Placed in a level: *Order* and *Reach Radius* (3 m), shown as a pillar until reached. Registers itself with the subsystem on BeginPlay |
+| `UNavigationObjectiveSubsystem` | World subsystem. The current objective is the unreached one with the lowest Order; reaching it reports `Nav.ObjectiveReached` and broadcasts `OnObjectiveReached` |
+| `UNavigationTelemetrySubsystem` | World subsystem, runs in every game level. Reports `Nav.ObjectiveDistance`, `Nav.HeadingAlignment`, `Nav.Speed` at the check interval of `UGameplayContextSettings`, and `Nav.AreaRevisited` |
+| `UNavigationTelemetrySettings` | Project Settings > Game > Navigation Telemetry: cell size (5 m), minimum absence for a revisit (5 s), standing-still speed (0.5 m/s) |
+
 ## Companion (game module)
 
 The companion lives in the game module under `Source/AdaptiveCompanion/Companion/`, with its

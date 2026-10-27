@@ -53,6 +53,10 @@ shown in the overlay. Details: [docs/PIPELINE.md](docs/PIPELINE.md#gameplay-cont
 In combat the game reports damage, health, attacks, hits on enemies, kills, deaths and how many
 enemies are near and how close. Details: [docs/PIPELINE.md](docs/PIPELINE.md#combat-telemetry).
 
+For navigation it reports the path distance to the current objective, whether the player heads
+toward it, their speed, revisited areas and reached objectives. Objectives are
+`NavigationObjective` actors placed in a level. Details: [docs/PIPELINE.md](docs/PIPELINE.md#navigation-telemetry).
+
 `ac.Debug 1` in the console shows a debug overlay with the pipeline's live values;
 `ac.Debug.Demo` fills it with test values. Details: [docs/DEBUG_OVERLAY.md](docs/DEBUG_OVERLAY.md).
 
@@ -64,7 +68,8 @@ enemies are near and how close. Details: [docs/PIPELINE.md](docs/PIPELINE.md#com
 | `AdaptiveCompanion/Plugins/AdaptiveCompanionFramework/` | Game-independent framework plugin |
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Companion/` | Companion character, AI controller and StateTree nodes |
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Context/` | Decides which gameplay context the game reports |
-| `AdaptiveCompanion/Source/AdaptiveCompanion/Telemetry/` | Reports telemetry that doesn't belong to a single actor (enemies near the player) |
+| `AdaptiveCompanion/Source/AdaptiveCompanion/Navigation/` | Navigation objectives and which one is current |
+| `AdaptiveCompanion/Source/AdaptiveCompanion/Telemetry/` | Reports telemetry that doesn't belong to a single actor (enemies near the player, movement toward the objective) |
 | `AdaptiveCompanion/Content/Companion/` | Our own assets (`BP_Companion`, `ST_Companion`, `DA_PipelineConfig`), stored via Git LFS |
 | `Scripts/` | Setup scripts |
 | `docs/` | Architecture, pipeline, assets, logging and debug overlay documentation |
