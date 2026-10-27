@@ -257,6 +257,9 @@ protected:
 	/** Called from a delegate when the attack montage ends */
 	void AttackMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 
+	/** Reports a started swing to the adaptive companion pipeline */
+	void ReportAttackStarted();
+
 	
 public:
 

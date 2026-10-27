@@ -16,6 +16,7 @@
 #include "Engine/LocalPlayer.h"
 #include "CombatPlayerController.h"
 #include "Pipeline/AdaptivePipelineSubsystem.h"
+#include "CombatEnemy.h"
 
 ACombatCharacter::ACombatCharacter()
 {
@@ -203,6 +204,8 @@ void ACombatCharacter::ComboAttack()
 	// reset the combo count
 	ComboCount = 0;
 
+	ReportAttackStarted();
+
 	// notify enemies they are about to be attacked
 	NotifyEnemiesOfIncomingAttack();
 
@@ -231,6 +234,8 @@ void ACombatCharacter::ChargedAttack()
 
 	// reset the charge release flag
 	bHasReleasedChargedAttack = false;
+
+	ReportAttackStarted();
 
 	// notify enemies they are about to be attacked
 	NotifyEnemiesOfIncomingAttack();
@@ -303,6 +308,10 @@ void ACombatCharacter::DoAttackTrace(FName DamageSourceBone)
 
 			if (Damageable)
 			{
+				// only living enemies count as hits for the pipeline, not dummies, boxes or ragdolls
+				const ACombatEnemy* Enemy = Cast<ACombatEnemy>(CurrentHit.GetActor());
+				const bool bHitEnemy = Enemy && Enemy->CurrentHP > 0.0f;
+
 				// knock upwards and away from the impact normal
 				const FVector Impulse = (CurrentHit.ImpactNormal * -MeleeKnockbackImpulse) + (FVector::UpVector * MeleeLaunchImpulse);
 
@@ -311,6 +320,14 @@ void ACombatCharacter::DoAttackTrace(FName DamageSourceBone)
 
 				// call the BP handler to play effects, etc.
 				DealtDamage(MeleeDamage, CurrentHit.ImpactPoint);
+
+				if (bHitEnemy)
+				{
+					if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(this))
+					{
+						Pipeline->ReportEvent(TEXT("Combat.HitDealt"), MeleeDamage);
+					}
+				}
 			}
 		}
 	}
@@ -333,6 +350,8 @@ void ACombatCharacter::CheckCombo()
 			// do we still have a combo section to play?
 			if (ComboCount < ComboSectionNames.Num())
 			{
+				ReportAttackStarted();
+
 				// notify enemies they are about to be attacked
 				NotifyEnemiesOfIncomingAttack();
 
@@ -364,6 +383,15 @@ void ACombatCharacter::LoopOrResolveChargedAttack()
 	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
 	{
 		AnimInstance->Montage_JumpToSection(bHasReleasedChargedAttack ? ChargeAttackSection : ChargeLoopSection , ChargedAttackMontage);
+	}
+}
+
+void ACombatCharacter::ReportAttackStarted()
+{
+	// report every swing to the adaptive companion pipeline, including every further combo step
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(this))
+	{
+		Pipeline->ReportEvent(TEXT("Combat.AttackStarted"));
 	}
 }
 
@@ -432,6 +460,12 @@ void ACombatCharacter::ApplyDamage(float Damage, AActor* DamageCauser, const FVe
 
 void ACombatCharacter::HandleDeath()
 {
+	// report the death to the adaptive companion pipeline
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(this))
+	{
+		Pipeline->ReportEvent(TEXT("Combat.PlayerDied"));
+	}
+
 	// disable movement while we're dead
 	GetCharacterMovement()->DisableMovement();
 
