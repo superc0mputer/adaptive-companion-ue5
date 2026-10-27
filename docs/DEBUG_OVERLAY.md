@@ -36,7 +36,8 @@ One section per pipeline stage, in pipeline order. A section without values show
 ## Writing values
 
 Each stage sets its values whenever it updates. A value keeps its row until it is removed or its
-section is cleared, so rows don't jump around while values change.
+section is cleared, so rows don't jump around while values change. The name column and the panel
+grow to fit the longest name and text value, since the game chooses the names.
 
 ```cpp
 #include "Debug/AdaptiveDebugSubsystem.h"

@@ -10,6 +10,7 @@
 #include "CombatLifeBar.h"
 #include "TimerManager.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Pipeline/AdaptivePipelineSubsystem.h"
 #include "Animation/AnimInstance.h"
 
 ACombatEnemy::ACombatEnemy()
@@ -245,6 +246,12 @@ void ACombatEnemy::HandleDeath()
 
 	// call the died delegate to notify any subscribers
 	OnEnemyDied.Broadcast();
+
+	// report the kill to the adaptive companion pipeline
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(this))
+	{
+		Pipeline->ReportEvent(TEXT("Combat.EnemyKilled"));
+	}
 
 	// set up the death timer
 	GetWorld()->GetTimerManager().SetTimer(DeathTimer, this, &ACombatEnemy::RemoveFromLevel, DeathRemovalTime);

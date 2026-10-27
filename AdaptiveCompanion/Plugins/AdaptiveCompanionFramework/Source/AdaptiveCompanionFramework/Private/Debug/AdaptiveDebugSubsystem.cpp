@@ -38,6 +38,7 @@ namespace
 	constexpr float TopOffset = 80.f;
 	constexpr float Padding = 8.f;
 	constexpr float NameWidth = 170.f;
+	constexpr float NameGap = 12.f;
 	constexpr float ValueWidth = 44.f;
 	constexpr float SectionGap = 6.f;
 
@@ -192,14 +193,33 @@ void UAdaptiveDebugSubsystem::DrawOverlay(UCanvas* Canvas, APlayerController* Pl
 
 	const int32 SectionCount = static_cast<int32>(EAdaptiveDebugSection::Count);
 	int32 Rows = 1;
+	float NameColumn = NameWidth * Scale;
+	float TextColumn = 0.f;
 	for (int32 Index = 0; Index < SectionCount; ++Index)
 	{
+		const TArray<FAdaptiveDebugEntry>& Entries = Data.GetEntries(static_cast<EAdaptiveDebugSection>(Index));
+
 		// header + entries, or one "no data" row
-		Rows += 1 + FMath::Max(1, Data.GetEntries(static_cast<EAdaptiveDebugSection>(Index)).Num());
+		Rows += 1 + FMath::Max(1, Entries.Num());
+
+		// the game chooses the names, so widen the columns (and the panel) for long names and texts
+		for (const FAdaptiveDebugEntry& Entry : Entries)
+		{
+			float TextWidth = 0.f;
+			float Unused = 0.f;
+			Canvas->TextSize(Font, Entry.Name, TextWidth, Unused, Scale, Scale);
+			NameColumn = FMath::Max(NameColumn, TextWidth + NameGap * Scale);
+
+			if (Entry.Kind == EAdaptiveDebugValueKind::Text)
+			{
+				Canvas->TextSize(Font, Entry.Text, TextWidth, Unused, Scale, Scale);
+				TextColumn = FMath::Max(TextColumn, TextWidth);
+			}
+		}
 	}
 
-	const float Width = PanelWidth * Scale;
 	const float Pad = Padding * Scale;
+	const float Width = FMath::Max(PanelWidth * Scale + NameColumn - NameWidth * Scale, NameColumn + TextColumn + 2.f * Pad);
 	const float Height = Rows * LineHeight + SectionCount * SectionGap * Scale + 2.f * Pad;
 	const float Left = Margin * Scale;
 	const float Top = FMath::Min(TopOffset * Scale, FMath::Max(0.f, Canvas->ClipY - Height));
@@ -207,7 +227,7 @@ void UAdaptiveDebugSubsystem::DrawOverlay(UCanvas* Canvas, APlayerController* Pl
 	DrawRect(Canvas, Left, Top, Width, Height, BackgroundColor);
 
 	const float TextLeft = Left + Pad;
-	const float BarLeft = TextLeft + NameWidth * Scale;
+	const float BarLeft = TextLeft + NameColumn;
 	const float ValueRight = Left + Width - Pad;
 	const float BarWidth = ValueRight - ValueWidth * Scale - BarLeft;
 	const float TextOffset = (LineHeight - TextHeight) * 0.5f;
