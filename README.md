@@ -50,6 +50,9 @@ The game also tells the framework what the player is doing: `Context.Combat` whi
 within 15 m (and for 3 s after), `Context.Navigation` otherwise. Context changes are logged and
 shown in the overlay. Details: [docs/PIPELINE.md](docs/PIPELINE.md#gameplay-context).
 
+In combat the game reports damage, health, attacks, hits on enemies, kills, deaths and how many
+enemies are near and how close. Details: [docs/PIPELINE.md](docs/PIPELINE.md#combat-telemetry).
+
 `ac.Debug 1` in the console shows a debug overlay with the pipeline's live values;
 `ac.Debug.Demo` fills it with test values. Details: [docs/DEBUG_OVERLAY.md](docs/DEBUG_OVERLAY.md).
 
@@ -61,6 +64,7 @@ shown in the overlay. Details: [docs/PIPELINE.md](docs/PIPELINE.md#gameplay-cont
 | `AdaptiveCompanion/Plugins/AdaptiveCompanionFramework/` | Game-independent framework plugin |
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Companion/` | Companion character, AI controller and StateTree nodes |
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Context/` | Decides which gameplay context the game reports |
+| `AdaptiveCompanion/Source/AdaptiveCompanion/Telemetry/` | Reports telemetry that doesn't belong to a single actor (enemies near the player) |
 | `AdaptiveCompanion/Content/Companion/` | Our own assets (`BP_Companion`, `ST_Companion`, `DA_PipelineConfig`), stored via Git LFS |
 | `Scripts/` | Setup scripts |
 | `docs/` | Architecture, pipeline, assets, logging and debug overlay documentation |

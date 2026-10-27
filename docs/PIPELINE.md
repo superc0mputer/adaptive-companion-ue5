@@ -64,7 +64,7 @@ From Blueprint: *Get Game Instance Subsystem (Adaptive Pipeline Subsystem)* → 
   were last logged.
 
 Names use dots for grouping (`Combat.`, `Nav.`, `Camera.`, `Input.`). Which names exist is decided
-per signal group in #8–#10.
+per signal group in #8–#10: combat in [Combat telemetry](#combat-telemetry).
 
 ## Gameplay context
 
@@ -116,6 +116,68 @@ events (misses an approaching enemy that hasn't hit yet) and over the arena's ac
 (tied to one level's setup; enemies can follow the player out of the arena).
 
 ![Overlay in combat (left) and 3 s after leaving it (right)](images/context-overlay.png)
+
+## Combat telemetry
+
+The signals the game reports about combat (#8). All are raw: they are in game units (damage, count,
+m), and turning them into 0–1 features is the job of the Features stage (#13).
+
+| Signal | Kind | Reported when | Reported by |
+|---|---|---|---|
+| `Combat.DamageTaken` | event (damage) | The player takes damage from any source (enemies, lava) | `ACombatCharacter::TakeDamage` |
+| `Player.Health` | value (0–1) | Health changes, and full health on (re)spawn | `ACombatCharacter` |
+| `Combat.AttackStarted` | event | The player starts a swing: combo start, every further combo step, charged attack | `ACombatCharacter` |
+| `Combat.HitDealt` | event (damage) | A player attack hits a living enemy. Dummies, damageable boxes and ragdolls don't count | `ACombatCharacter::DoAttackTrace` |
+| `Combat.EnemyKilled` | event | An enemy dies, from any source | `ACombatEnemy::HandleDeath` |
+| `Combat.PlayerDied` | event | The player dies | `ACombatCharacter::HandleDeath` |
+| `Combat.EnemiesNearby` | value (count) | Number of living enemies within the combat radius (15 m), every 0.1 s | `UCombatTelemetrySubsystem` |
+| `Combat.NearestEnemyDistance` | value (m) | Distance to the nearest living enemy, capped at the radius (15 when none is in range), rounded to 0.1 m, every 0.1 s | `UCombatTelemetrySubsystem` |
+
+**Why these:** they cover the four questions the Combat and Threat needs (#14) will ask.
+*Is the player under pressure?* Damage taken and health. *Is the player fighting effectively?*
+Attacks and hits together give a hit rate. *Is the fight going anywhere?* Kills. *How close is
+the threat, even before it hits?* Enemy count and nearest distance. Death is the strongest
+struggle signal and is reported on its own, so it doesn't have to be inferred from health.
+
+- **Only hits on enemies:** hitting a training dummy or a box isn't fighting, and would make the
+  hit rate look better than the fight goes.
+- **Count and distance always reported:** "no enemy near" is information too, and a gap-free
+  series is easier to analyze. Distance is capped at the radius instead of using a marker value
+  like -1, so it stays monotonic (further = less threat) and normalizes without a special case.
+- **Own subsystem:** the two values come from `UCombatTelemetrySubsystem`, separate from
+  context detection (`UGameplayContextSubsystem`), so telemetry and context can change
+  independently. Both read the radius and check interval from Project Settings > Game >
+  Gameplay Context, so "nearby" means the same in both.
+- **Rounded distance:** values are logged on every change, so an unrounded distance would add a
+  record at every check while anything moves. 0.1 m is finer than any threat rule needs.
+
+From a scripted `-game` run of `Lvl_Combat`: one swing into empty air, then next to an enemy,
+swing, kill it, die (payloads shortened, distance records thinned out):
+
+```json
+{"t":2.77,"type":"signal","payload":{"name":"Combat.EnemiesNearby","kind":"value","value":0}}
+{"t":2.77,"type":"signal","payload":{"name":"Combat.NearestEnemyDistance","kind":"value","value":15}}
+{"t":6.84,"type":"signal","payload":{"name":"Combat.AttackStarted","kind":"event","value":1}}
+{"t":14.35,"type":"signal","payload":{"name":"Combat.AttackStarted","kind":"event","value":1}}
+{"t":14.44,"type":"signal","payload":{"name":"Combat.EnemiesNearby","kind":"value","value":1}}
+{"t":14.44,"type":"signal","payload":{"name":"Combat.NearestEnemyDistance","kind":"value","value":1.1}}
+{"t":14.88,"type":"signal","payload":{"name":"Combat.HitDealt","kind":"event","value":1}}
+{"t":15.04,"type":"signal","payload":{"name":"Combat.NearestEnemyDistance","kind":"value","value":1.7}}
+{"t":19.64,"type":"signal","payload":{"name":"Combat.EnemyKilled","kind":"event","value":1}}
+{"t":19.75,"type":"signal","payload":{"name":"Combat.EnemiesNearby","kind":"value","value":0}}
+{"t":19.84,"type":"signal","payload":{"name":"Combat.DamageTaken","kind":"event","value":100}}
+{"t":19.84,"type":"signal","payload":{"name":"Combat.PlayerDied","kind":"event","value":1}}
+{"t":19.86,"type":"signal","payload":{"name":"Player.Health","kind":"value","value":0}}
+{"t":20.47,"type":"signal","payload":{"name":"Combat.EnemiesNearby","kind":"value","value":2}}
+{"t":22.90,"type":"signal","payload":{"name":"Player.Health","kind":"value","value":1}}
+{"t":22.98,"type":"signal","payload":{"name":"Combat.EnemiesNearby","kind":"value","value":0}}
+```
+
+The swing at 6.84 hits nothing, so there is no `HitDealt`. The hit knocks the enemy back, which
+shows up as a growing distance. After the kill the next wave spawns (2 enemies at 20.47), and
+after respawning at the start (22.90) no enemy is near.
+
+![All combat signals in the overlay after a kill and a death](images/combat-telemetry.png)
 
 ## First loop
 

@@ -101,6 +101,18 @@ The game decides what the player is doing and reports it to the pipeline as cont
 | `UGameplayContextSubsystem` | World subsystem, runs in every game level without placing anything. Reports `Context.Combat` while a living `ACombatEnemy` is near the player, `Context.Navigation` otherwise |
 | `UGameplayContextSettings` | Project Settings > Game > Gameplay Context: combat radius (15 m), linger time (3 s), check interval (0.1 s) |
 
+## Combat telemetry (game module)
+
+The game reports combat signals to the pipeline ([PIPELINE.md](PIPELINE.md#combat-telemetry)).
+Events come from where they happen in the combat template code, the values about nearby enemies
+from a subsystem in `Source/AdaptiveCompanion/Telemetry/`.
+
+| Class | Role |
+|---|---|
+| `ACombatCharacter` | Reports `Combat.DamageTaken`, `Player.Health`, `Combat.AttackStarted`, `Combat.HitDealt` and `Combat.PlayerDied` |
+| `ACombatEnemy` | Reports `Combat.EnemyKilled` |
+| `UCombatTelemetrySubsystem` | World subsystem, runs in every game level without placing anything. Reports `Combat.EnemiesNearby` and `Combat.NearestEnemyDistance` at the check interval of `UGameplayContextSettings`, within its combat radius |
+
 ## Companion (game module)
 
 The companion lives in the game module under `Source/AdaptiveCompanion/Companion/`, with its
