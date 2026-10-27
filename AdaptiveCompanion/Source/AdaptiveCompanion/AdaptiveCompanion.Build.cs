@@ -31,6 +31,7 @@ public class AdaptiveCompanion : ModuleRules
 			"AdaptiveCompanion",
 			"AdaptiveCompanion/Companion",
 			"AdaptiveCompanion/Context",
+			"AdaptiveCompanion/Navigation",
 			"AdaptiveCompanion/Telemetry",
 			"AdaptiveCompanion/Variant_Combat",
 			"AdaptiveCompanion/Variant_Combat/AI",
