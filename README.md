@@ -46,6 +46,10 @@ The game reports telemetry to the framework's pipeline, which runs its six stage
 back to the companion. `ac.Pipeline.TestActor` spawns an actor that reports test values.
 Details: [docs/PIPELINE.md](docs/PIPELINE.md#first-loop).
 
+The game also tells the framework what the player is doing: `Context.Combat` while an enemy is
+within 15 m (and for 3 s after), `Context.Navigation` otherwise. Context changes are logged and
+shown in the overlay. Details: [docs/PIPELINE.md](docs/PIPELINE.md#gameplay-context).
+
 `ac.Debug 1` in the console shows a debug overlay with the pipeline's live values;
 `ac.Debug.Demo` fills it with test values. Details: [docs/DEBUG_OVERLAY.md](docs/DEBUG_OVERLAY.md).
 
@@ -56,6 +60,7 @@ Details: [docs/PIPELINE.md](docs/PIPELINE.md#first-loop).
 | `AdaptiveCompanion/` | Unreal project (prototype game) |
 | `AdaptiveCompanion/Plugins/AdaptiveCompanionFramework/` | Game-independent framework plugin |
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Companion/` | Companion character, AI controller and StateTree nodes |
+| `AdaptiveCompanion/Source/AdaptiveCompanion/Context/` | Decides which gameplay context the game reports |
 | `AdaptiveCompanion/Content/Companion/` | Our own assets (`BP_Companion`, `ST_Companion`, `DA_PipelineConfig`), stored via Git LFS |
 | `Scripts/` | Setup scripts |
 | `docs/` | Architecture, pipeline, assets, logging and debug overlay documentation |

@@ -59,9 +59,9 @@ Game-specific assets live in `Content/Companion/`, which is allow-listed in `.gi
 
 | Class | Role |
 |---|---|
-| `UAdaptivePipelineSubsystem` | Game instance subsystem: runs the six stages in order at a fixed rate (default 10 Hz), takes the game's telemetry (`ReportEvent`, `ReportValue`) and hands selected interventions back (`OnIntervention`, `ReportInterventionPhase`) |
+| `UAdaptivePipelineSubsystem` | Game instance subsystem: runs the six stages in order at a fixed rate (default 10 Hz), takes the game's telemetry (`ReportEvent`, `ReportValue`) and gameplay context (`SetContext`) and hands selected interventions back (`OnIntervention`, `ReportInterventionPhase`) |
 | `UAdaptivePipelineStage` | Base class of the stages: `Initialize`, `Update(Frame)`, `Deinitialize` |
-| `UAdaptiveTelemetryStage`, `UAdaptiveFeatureStage`, `UAdaptiveNeedStage`, `UAdaptiveContextStage`, `UAdaptiveSelectionStage`, `UAdaptiveBehaviorStage` | The six stages. Features, Need and Selection are deliberately naive (one damage feature, one threshold, one intervention) until their issues; Context is empty |
+| `UAdaptiveTelemetryStage`, `UAdaptiveFeatureStage`, `UAdaptiveNeedStage`, `UAdaptiveContextStage`, `UAdaptiveSelectionStage`, `UAdaptiveBehaviorStage` | The six stages. Features, Need and Selection are deliberately naive (one damage feature, one threshold, one intervention) until their issues; Context holds the contexts the game reports |
 | `FAdaptivePipelineFrame` | Data passed through the stages in one update |
 | `UAdaptivePipelineConfig` | Data asset with the framework settings: update rate and the class and parameters of each stage. This game's instance is `Content/Companion/DA_PipelineConfig` |
 | `UAdaptivePipelineSettings` | Project Settings > Plugins > Adaptive Companion Pipeline: selects the config asset |
@@ -90,6 +90,16 @@ Record format, file location, Python loading and measured cost: [LOGGING.md](LOG
 | `EAdaptiveDebugSection` | One section per pipeline stage: Telemetry, Features, Need, Context, Selection, Behavior |
 
 Commands, sections and how stages write to it: [DEBUG_OVERLAY.md](DEBUG_OVERLAY.md).
+
+## Gameplay context (game module)
+
+The game decides what the player is doing and reports it to the pipeline as contexts
+([PIPELINE.md](PIPELINE.md#gameplay-context)). The code is in `Source/AdaptiveCompanion/Context/`.
+
+| Class | Role |
+|---|---|
+| `UGameplayContextSubsystem` | World subsystem, runs in every game level without placing anything. Reports `Context.Combat` while a living `ACombatEnemy` is near the player, `Context.Navigation` otherwise |
+| `UGameplayContextSettings` | Project Settings > Game > Gameplay Context: combat radius (15 m), linger time (3 s), check interval (0.1 s) |
 
 ## Companion (game module)
 
