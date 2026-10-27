@@ -7,6 +7,7 @@
 #include "AdaptivePipelineSubsystem.generated.h"
 
 class UAdaptiveBehaviorStage;
+class UAdaptiveContextStage;
 class UAdaptiveDebugSubsystem;
 class UAdaptiveLogSubsystem;
 class UAdaptivePipelineConfig;
@@ -21,6 +22,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAdaptiveInterventionDelegate, FName
  *
  *    ReportEvent("Combat.DamageTaken", 25)   something happened, optionally with a magnitude
  *    ReportValue("Player.Health", 0.4)       current value of something continuous
+ *
+ *    SetContext("Context.Combat", true)      what the player is currently doing, several at once
  *
  *  The selected interventions come back to the game through OnIntervention; the game carries them
  *  out and reports their phases with ReportInterventionPhase.
@@ -50,6 +53,14 @@ public:
 	/** Reports the current value of a continuous signal, e.g. health. Only the latest value per update counts, so calling it every frame is fine */
 	UFUNCTION(BlueprintCallable, Category = "Adaptive Companion|Telemetry")
 	void ReportValue(FName Name, double Value);
+
+	/** Activates or deactivates a gameplay context, e.g. "Context.Combat" while enemies are near. Several can be active at once. Logged right away; repeated calls with the same state are ignored */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Companion|Context")
+	void SetContext(FName Name, bool bActive);
+
+	/** True if the game reported the context as active */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Companion|Context")
+	bool IsContextActive(FName Name) const;
 
 	/** Called when the pipeline selected an intervention. The game carries it out, e.g. by sending its companion an event */
 	UPROPERTY(BlueprintAssignable, Category = "Adaptive Companion|Behavior")
@@ -95,6 +106,9 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UAdaptiveTelemetryStage> Telemetry;
+
+	UPROPERTY()
+	TObjectPtr<UAdaptiveContextStage> Context;
 
 	UPROPERTY()
 	TObjectPtr<UAdaptiveBehaviorStage> Behavior;

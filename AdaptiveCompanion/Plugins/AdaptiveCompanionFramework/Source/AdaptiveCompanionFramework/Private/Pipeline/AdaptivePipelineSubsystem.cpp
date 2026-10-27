@@ -46,7 +46,7 @@ void UAdaptivePipelineSubsystem::Initialize(FSubsystemCollectionBase& Collection
 	Telemetry = CreateStage(Config->Telemetry.Get());
 	CreateStage(Config->Features.Get());
 	CreateStage(Config->Need.Get());
-	CreateStage(Config->Context.Get());
+	Context = CreateStage(Config->Context.Get());
 	CreateStage(Config->Selection.Get());
 	Behavior = CreateStage(Config->Behavior.Get());
 
@@ -88,6 +88,7 @@ void UAdaptivePipelineSubsystem::Deinitialize()
 	}
 	Stages.Reset();
 	Telemetry = nullptr;
+	Context = nullptr;
 	Behavior = nullptr;
 
 	Super::Deinitialize();
@@ -118,6 +119,19 @@ void UAdaptivePipelineSubsystem::ReportValue(FName Name, double Value)
 	{
 		Telemetry->ReportValue(Name, Value);
 	}
+}
+
+void UAdaptivePipelineSubsystem::SetContext(FName Name, bool bActive)
+{
+	if (Context)
+	{
+		Context->SetContext(Name, bActive);
+	}
+}
+
+bool UAdaptivePipelineSubsystem::IsContextActive(FName Name) const
+{
+	return Context && Context->IsContextActive(Name);
 }
 
 void UAdaptivePipelineSubsystem::ReportInterventionPhase(FName Intervention, FName Phase)
@@ -216,6 +230,26 @@ static FAutoConsoleCommandWithWorldAndArgs GAdaptivePipelineEventCommand(
 			return;
 		}
 		Pipeline->ReportEvent(FName(*Args[0]), Value);
+	}));
+
+static FAutoConsoleCommandWithWorldAndArgs GAdaptivePipelineContextCommand(
+	TEXT("ac.Pipeline.Context"),
+	TEXT("Activates or deactivates a context: ac.Pipeline.Context <Name> <0|1>"),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+	{
+		UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(World);
+		if (!Pipeline)
+		{
+			return;
+		}
+
+		bool bActive = false;
+		if (Args.Num() < 2 || !LexTryParseString(bActive, *Args[1]))
+		{
+			UE_LOG(LogAdaptiveCompanionFramework, Warning, TEXT("Usage: ac.Pipeline.Context <Name> <0|1>"));
+			return;
+		}
+		Pipeline->SetContext(FName(*Args[0]), bActive);
 	}));
 
 static FAutoConsoleCommandWithWorldAndArgs GAdaptivePipelineTestActorCommand(

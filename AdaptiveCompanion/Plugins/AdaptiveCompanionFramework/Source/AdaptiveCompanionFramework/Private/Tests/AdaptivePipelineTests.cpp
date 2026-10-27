@@ -122,6 +122,63 @@ bool FAdaptivePipelineFeatureNeedTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptivePipelineContextTest, "AdaptiveCompanion.Pipeline.Context",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FAdaptivePipelineContextTest::RunTest(const FString& Parameters)
+{
+	const FName Combat = TEXT("Context.Combat");
+	const FName Navigation = TEXT("Context.Navigation");
+
+	UAdaptiveContextStage* Stage = NewObject<UAdaptiveContextStage>();
+
+	auto Run = [&]()
+	{
+		FAdaptivePipelineFrame Frame;
+		Stage->Update(Frame);
+		return Frame;
+	};
+
+	FAdaptivePipelineFrame Frame = Run();
+	TestTrue(TEXT("No context at the start"), Frame.Contexts.IsEmpty());
+	TestFalse(TEXT("No change at the start"), Frame.bContextChanged);
+
+	Stage->SetContext(Navigation, true);
+	Frame = Run();
+	TestTrue(TEXT("Navigation active"), Frame.Contexts.Contains(Navigation));
+	TestTrue(TEXT("Change is flagged"), Frame.bContextChanged);
+
+	Frame = Run();
+	TestTrue(TEXT("Stays active"), Frame.Contexts.Contains(Navigation));
+	TestFalse(TEXT("Change is only flagged once"), Frame.bContextChanged);
+
+	Stage->SetContext(Navigation, true);
+	Frame = Run();
+	TestFalse(TEXT("Setting the same state again is no change"), Frame.bContextChanged);
+
+	Stage->SetContext(Combat, true);
+	Frame = Run();
+	TestEqual(TEXT("Several contexts at once"), Frame.Contexts.Num(), 2);
+	TestTrue(TEXT("Combat added"), Frame.bContextChanged);
+	TestEqual(TEXT("Contexts in the order they became active"), Stage->GetActiveContexts(), TArray<FName>{ Navigation, Combat });
+
+	Stage->SetContext(Navigation, false);
+	Frame = Run();
+	TestFalse(TEXT("Navigation removed"), Frame.Contexts.Contains(Navigation));
+	TestTrue(TEXT("Combat still active"), Frame.Contexts.Contains(Combat));
+	TestTrue(TEXT("Removal is flagged"), Frame.bContextChanged);
+
+	Stage->SetContext(Combat, false);
+	Stage->SetContext(Combat, true);
+	Frame = Run();
+	TestFalse(TEXT("Off and on again between two updates is no change"), Frame.bContextChanged);
+
+	Stage->SetContext(NAME_None, true);
+	TestFalse(TEXT("NAME_None is ignored"), Stage->IsContextActive(NAME_None));
+
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptivePipelineSelectionTest, "AdaptiveCompanion.Pipeline.Selection",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
 

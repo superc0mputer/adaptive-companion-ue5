@@ -52,6 +52,12 @@ struct FAdaptivePipelineFrame
 	/** 3 Need: state of every need dimension by name */
 	TMap<FName, FAdaptiveNeedState> Needs;
 
+	/** 4 Context: contexts the game reported as active, e.g. "Context.Combat", in the order they became active */
+	TSet<FName> Contexts;
+
+	/** 4 Context: true only in the update where Contexts differs from the previous update */
+	bool bContextChanged = false;
+
 	/** 5 Selection: the intervention to start in this update, NAME_None for none */
 	FName Intervention;
 };

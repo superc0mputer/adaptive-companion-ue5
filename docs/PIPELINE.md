@@ -13,7 +13,7 @@ API the game reports telemetry through. It is part of the framework plugin
 | 1 | Telemetry | `UAdaptiveTelemetryStage` | Collects what the game reports, logs it, shows it in the overlay |
 | 2 | Features | `UAdaptiveFeatureStage` | Naive: one windowed sum ([first loop](#first-loop)), real features in #13 |
 | 3 | Assistance Need | `UAdaptiveNeedStage` | Naive: one dimension, one threshold, real estimation in #14, #15 |
-| 4 | Context | `UAdaptiveContextStage` | Empty, #7 |
+| 4 | Context | `UAdaptiveContextStage` | Holds the contexts the game reports ([Gameplay context](#gameplay-context)), not used by Selection yet |
 | 5 | Intervention Selection | `UAdaptiveSelectionStage` | Naive: one fixed intervention, utility selection in #18 |
 | 6 | Behavior | `UAdaptiveBehaviorStage` | Hands the intervention to the game and logs its phases, status tracking in #19 |
 
@@ -23,6 +23,7 @@ own output. Context (4) runs before Selection (5), which is the only stage that 
 
 ```
 Game ──ReportEvent / ReportValue──▶ 1 Telemetry ─▶ 2 Features ─▶ 3 Need ─▶ 4 Context ─▶ 5 Selection ─▶ 6 Behavior
+     ──SetContext─────────────────────────────────────────────────────────▶
                                          └─────────────── FAdaptivePipelineFrame, once per update ──────────────┘
 Game ◀──────────────────────────────────────── OnIntervention ───────────────────────────────────────────────┘
      ──ReportInterventionPhase──▶ 6 Behavior
@@ -64,6 +65,57 @@ From Blueprint: *Get Game Instance Subsystem (Adaptive Pipeline Subsystem)* → 
 
 Names use dots for grouping (`Combat.`, `Nav.`, `Camera.`, `Input.`). Which names exist is decided
 per signal group in #8–#10.
+
+## Gameplay context
+
+The game also reports what the player is currently doing, as a set of named contexts. Several
+can be active at once (e.g. navigating while under threat), and the names are chosen by the game,
+so the framework still uses no game types.
+
+```cpp
+Pipeline->SetContext(TEXT("Context.Combat"), true);
+Pipeline->SetContext(TEXT("Context.Navigation"), false);
+```
+
+From Blueprint: *Set Context* / *Is Context Active*. Calls that don't change anything are
+ignored, so the game can report its contexts every frame.
+
+- A change is logged as a `context` record the moment the game reports it, like events.
+- Every update passes the active contexts in `Frame.Contexts`, in the order they became active.
+  `Frame.bContextChanged` is true in the update where the set differs from the previous update.
+- Selection doesn't use the context yet; filtering interventions by context comes in #17, #18.
+
+Entering and leaving combat in a `-game` run of `Lvl_Combat` (payloads shortened):
+
+```json
+{"t":3.06,"type":"context","payload":{"name":"Context.Navigation","active":true,"contexts":["Context.Navigation"]}}
+{"t":10.95,"type":"context","payload":{"name":"Context.Combat","active":true,"contexts":["Context.Navigation","Context.Combat"]}}
+{"t":10.95,"type":"context","payload":{"name":"Context.Navigation","active":false,"contexts":["Context.Combat"]}}
+{"t":19.22,"type":"context","payload":{"name":"Context.Combat","active":false,"contexts":[]}}
+{"t":19.22,"type":"context","payload":{"name":"Context.Navigation","active":true,"contexts":["Context.Navigation"]}}
+```
+
+The player was moved next to an enemy at t=10.93 and away from all enemies at t=16.18, so
+Combat ended after the 3 s linger time.
+
+**Contexts in this game** (`UGameplayContextSubsystem`, [ARCHITECTURE.md](ARCHITECTURE.md#gameplay-context-game-module)):
+
+| Context | Active while |
+|---|---|
+| `Context.Combat` | A living enemy is within 15 m of the player, and until none has been for 3 s |
+| `Context.Navigation` | The player is not in combat |
+
+The linger time keeps Combat from flickering when an enemy moves along the edge of the radius.
+Radius, linger time and check interval are in Project Settings > Game > Gameplay Context. When a
+level ends both are deactivated, so no stale context is left during a level change.
+
+**Why a set of names reported by the game:** only the game knows what counts as combat or
+navigation in it (enemies, volumes, scripted sequences), and a single exclusive context would lose
+overlaps that matter for selection later. Distance with a linger time was chosen over damage
+events (misses an approaching enemy that hasn't hit yet) and over the arena's activation volume
+(tied to one level's setup; enemies can follow the player out of the arena).
+
+![Overlay in combat (left) and 3 s after leaving it (right)](images/context-overlay.png)
 
 ## First loop
 
@@ -149,6 +201,7 @@ The pipeline adds these record types to the session log ([LOGGING.md](LOGGING.md
 | `signal` | When an event is reported, when a value changed | `name`, `kind` (`event` or `value`), `value` |
 | `feature` | When a feature changed | `name`, `value` |
 | `state` | When a need's level changed | `need`, `score`, `level` (`Normal` or `Elevated`). A need starts as Normal without a record |
+| `context` | When the game activates or deactivates a context | `name`, `active`, `contexts` (all active contexts after the change) |
 | `intervention` | At every phase of an intervention | `name`, `phase`; `selected` adds `need` and `score`, `dispatched` adds `receivers` (number of listeners) |
 
 The phases are `selected` (Selection), `dispatched` (Behavior, right before `OnIntervention`) and
@@ -188,6 +241,7 @@ Section *1 Telemetry* shows every value with its latest value, and every event w
 value and how often it occurred, e.g. `Combat.DamageTaken  10.00 (2x)`. *2 Features* and
 *3 Assistance Need* show the feature and the Combat score as bars plus the level, *5* the last
 selected intervention and *6* the latest phase of each intervention, both with their time.
+*4 Context* shows every context the game reported, active or inactive, and since when.
 
 ## Testing
 
@@ -196,6 +250,7 @@ selected intervention and *6* the latest phase of each intervention, both with t
 | `ac.Pipeline.TestActor` | Spawns `AAdaptiveTelemetryTestActor` next to the player, or removes it. It reports `Test.Wave` (a sine between 0 and 1, every frame) and `Test.Pulse` (an event every 2 s) |
 | `ac.Pipeline.Value <Name> <Value>` | Reports a value |
 | `ac.Pipeline.Event <Name> [Value]` | Reports an event, value 1 by default |
+| `ac.Pipeline.Context <Name> <0\|1>` | Activates or deactivates a context |
 
 `ac.Debug 1` then shows the values in the overlay; the session log has the matching `signal`
 records.
@@ -206,7 +261,8 @@ starts the companion's reaction directly, without the pipeline (as `Intervention
 
 Automation tests `AdaptiveCompanion.Pipeline.FixedRate` (update counts at different frame rates,
 hitches), `.Telemetry` (event and value hand-off), `.FeatureNeed` (window, normalization,
-threshold), `.Selection` (selected once per elevation) and `.Config` (default stages):
+threshold), `.Context` (set, change flag, repeated and no-op calls), `.Selection` (selected once per
+elevation) and `.Config` (default stages):
 
 ```bash
 UnrealEditor-Cmd AdaptiveCompanion.uproject -ExecCmds="Automation RunTests AdaptiveCompanion.Pipeline; Quit" -unattended -nullrhi
