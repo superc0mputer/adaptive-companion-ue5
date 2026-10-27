@@ -64,7 +64,8 @@ From Blueprint: *Get Game Instance Subsystem (Adaptive Pipeline Subsystem)* → 
   were last logged.
 
 Names use dots for grouping (`Combat.`, `Nav.`, `Camera.`, `Input.`). Which names exist is decided
-per signal group in #8–#10: combat in [Combat telemetry](#combat-telemetry).
+per signal group in #8–#10: combat in [Combat telemetry](#combat-telemetry), navigation in
+[Navigation telemetry](#navigation-telemetry).
 
 ## Gameplay context
 
@@ -178,6 +179,80 @@ shows up as a growing distance. After the kill the next wave spawns (2 enemies a
 after respawning at the start (22.90) no enemy is near.
 
 ![All combat signals in the overlay after a kill and a death](images/combat-telemetry.png)
+
+## Navigation telemetry
+
+The signals the game reports about how the player moves toward the current objective (#9). Like
+the combat signals they are raw (m, m/s, −1…1); features come in #13.
+
+| Signal | Kind | Reported when | Reported by |
+|---|---|---|---|
+| `Nav.ObjectiveDistance` | value (m) | Length of the navmesh path to the current objective, every 0.1 s. Straight-line distance if no full path is found; 0 without a current objective | `UNavigationTelemetrySubsystem` |
+| `Nav.HeadingAlignment` | value (−1…1) | Cosine between the horizontal movement direction and the direction the path to the objective starts in, every 0.1 s. 0 while standing still (below 0.5 m/s) or without an objective | `UNavigationTelemetrySubsystem` |
+| `Nav.Speed` | value (m/s) | Horizontal speed of the player, every 0.1 s | `UNavigationTelemetrySubsystem` |
+| `Nav.AreaRevisited` | event | The player enters a 5 m grid cell they had been in before and left at least 5 s ago | `UNavigationTelemetrySubsystem` |
+| `Nav.ObjectiveReached` | event (Order) | The player gets within the current objective's reach radius (3 m); the next one becomes current | `UNavigationObjectiveSubsystem` |
+
+**Objectives:** `ANavigationObjective` actors placed in a level, reached in ascending *Order*.
+`UNavigationObjectiveSubsystem` tracks the current one (the unreached one with the lowest Order)
+and broadcasts `OnObjectiveReached`. A level without objectives only reports speed and revisits.
+The navigation level with real objectives comes in #12.
+
+**How progress is measured:** as the decrease of `Nav.ObjectiveDistance` over time. The path
+length along the navmesh is used instead of the straight line, because around walls and in dead
+ends the straight line says "close" while the player is still far away. The rate itself is a
+feature and is derived in #13.
+
+**Why these:** distance gives progress, alignment tells right away whether the player heads toward
+the objective (without waiting for the distance to change), speed shows hesitating and standing
+still, revisits show going in circles and backtracking, and reached objectives mark milestones.
+
+- **Alignment against the path, not the straight line:** walking around a wall toward the
+  objective is heading the right way. The direction is taken to the first path point at least
+  0.5 m away, so a corner right next to the player doesn't make it jump.
+- **Revisits on a grid with a minimum absence:** a revisit only counts after the player was out
+  of the cell for 5 s, so walking along a cell border doesn't fire events. The visited cells are
+  forgotten when an objective is reached, because the way to the next one may lead back through
+  known areas.
+- **Always reported, rounded:** like the combat values, distance (0.1 m), alignment (0.01) and
+  speed (0.1 m/s) are reported at every check and rounded so that standing still logs nothing.
+  When the level ends all three are reset to 0. Without a player (respawning) the last values stay.
+
+Cell size, minimum absence and the standing-still speed are in Project Settings > Game >
+Navigation Telemetry (`UNavigationTelemetrySettings`); the check interval is the one of Gameplay
+Context. The reach radius is set per objective.
+
+Straight to an objective, then wandering back and forth sideways to the next one for 20 s, then
+straight to it, from a scripted `-game` run of `Lvl_ThirdPerson` with two objectives 15 m away
+(values sampled every 0.1 s and averaged per phase):
+
+| Phase | Duration | Alignment mean (range) | Distance | Revisits |
+|---|---|---|---|---|
+| Straight to objective 0 | 2.6 s | 0.96 (0.00…1.00) | 15.1 → 3.0 m | 0 |
+| Wandering | 20.0 s | 0.08 (−0.92…0.93) | 19.7 → 19.5 m | 12 |
+| Straight to objective 1 | 3.6 s | 0.95 (0.13…1.00) | 19.2 → 2.9 m | 0 |
+
+Heading straight, the distance drops by the running speed (≈ 4.7 m/s) and the alignment stays
+near 1. Wandering, the distance doesn't change, the alignment swings around 0 and the player
+revisits areas every few seconds. Log excerpt (payloads shortened):
+
+```json
+{"t":6.41,"type":"signal","payload":{"name":"Nav.HeadingAlignment","kind":"value","value":1}}
+{"t":6.52,"type":"signal","payload":{"name":"Nav.ObjectiveDistance","kind":"value","value":14.2}}
+{"t":6.52,"type":"signal","payload":{"name":"Nav.Speed","kind":"value","value":5}}
+{"t":10.02,"type":"signal","payload":{"name":"Nav.ObjectiveDistance","kind":"value","value":3}}
+{"t":10.05,"type":"signal","payload":{"name":"Nav.ObjectiveReached","kind":"event","value":0}}
+{"t":10.22,"type":"signal","payload":{"name":"Nav.ObjectiveDistance","kind":"value","value":19.7}}
+{"t":12.54,"type":"signal","payload":{"name":"Nav.HeadingAlignment","kind":"value","value":-0.82}}
+```
+
+After objective 0 is reached at 10.05, the distance jumps to the path length to objective 1.
+
+![Heading straight to an objective (left) and wandering sideways to the next one (right)](images/navigation-telemetry.png)
+
+To try it in PIE, place `NavigationObjective` actors in a level (Place Actors, search
+"Navigation Objective") and set their *Order*. The grey pillar marks an objective until it is
+reached.
 
 ## First loop
 
