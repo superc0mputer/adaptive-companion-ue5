@@ -30,6 +30,7 @@ public class AdaptiveCompanion : ModuleRules
 		PublicIncludePaths.AddRange(new string[] {
 			"AdaptiveCompanion",
 			"AdaptiveCompanion/Companion",
+			"AdaptiveCompanion/Context",
 			"AdaptiveCompanion/Variant_Combat",
 			"AdaptiveCompanion/Variant_Combat/AI",
 			"AdaptiveCompanion/Variant_Combat/Animation",
