@@ -1,12 +1,11 @@
 #include "CombatScenario.h"
 #include "CombatCharacter.h"
 #include "CombatEnemy.h"
+#include "ScenarioLog.h"
 #include "AdaptiveCompanion.h"
 #include "Components/SceneComponent.h"
-#include "Debug/AdaptiveDebugSubsystem.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
-#include "Logging/AdaptiveLogSubsystem.h"
 #include "TimerManager.h"
 
 namespace CombatScenario
@@ -68,10 +67,7 @@ void ACombatScenario::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	GetWorldTimerManager().ClearTimer(WaveTimer);
 
-	if (UAdaptiveDebugSubsystem* Debug = UAdaptiveDebugSubsystem::Get(this))
-	{
-		Debug->RemoveValue(EAdaptiveDebugSection::Context, FString::Printf(TEXT("Scenario.%s"), *ScenarioName.ToString()));
-	}
+	ScenarioLog::ClearOverlay(this, ScenarioName);
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -225,24 +221,13 @@ FName ACombatScenario::GetCurrentPhase() const
 
 void ACombatScenario::LogPhase(FName Phase, const TCHAR* Event) const
 {
-	if (UAdaptiveLogSubsystem* Log = UAdaptiveLogSubsystem::Get(this))
-	{
-		TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
-		Payload->SetStringField(TEXT("scenario"), ScenarioName.ToString());
-		Payload->SetStringField(TEXT("phase"), Phase.ToString());
-		Payload->SetStringField(TEXT("event"), Event);
-		Payload->SetNumberField(TEXT("wave"), WaveIndex);
-		Payload->SetNumberField(TEXT("enemies_left"), EnemiesLeft);
-		Log->LogRecord(TEXT("scenario"), Payload);
-	}
+	const FString OverlayText = EnemiesLeft > 0
+		? FString::Printf(TEXT("%s, %d enemies left"), *Phase.ToString(), EnemiesLeft)
+		: FString::Printf(TEXT("%s, %s"), *Phase.ToString(), Event);
 
-	if (UAdaptiveDebugSubsystem* Debug = UAdaptiveDebugSubsystem::Get(this))
+	ScenarioLog::Write(this, ScenarioName, Phase, Event, OverlayText, [this](FJsonObject& Payload)
 	{
-		const FString Text = EnemiesLeft > 0
-			? FString::Printf(TEXT("%s, %d enemies left"), *Phase.ToString(), EnemiesLeft)
-			: FString::Printf(TEXT("%s, %s"), *Phase.ToString(), Event);
-		Debug->SetText(EAdaptiveDebugSection::Context, FString::Printf(TEXT("Scenario.%s"), *ScenarioName.ToString()), Text);
-	}
-
-	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Scenario %s: %s %s"), *ScenarioName.ToString(), *Phase.ToString(), Event);
+		Payload.SetNumberField(TEXT("wave"), WaveIndex);
+		Payload.SetNumberField(TEXT("enemies_left"), EnemiesLeft);
+	});
 }

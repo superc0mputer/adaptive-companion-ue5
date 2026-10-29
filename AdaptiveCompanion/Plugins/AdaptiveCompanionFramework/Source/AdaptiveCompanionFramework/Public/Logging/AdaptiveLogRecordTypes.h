@@ -29,5 +29,6 @@ namespace AdaptiveLogRecordType
 	inline const FString Feature = TEXT("feature");
 	inline const FString State = TEXT("state");
 	inline const FString Context = TEXT("context");
+	inline const FString Objective = TEXT("objective");
 	inline const FString Intervention = TEXT("intervention");
 }
