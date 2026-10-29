@@ -57,6 +57,10 @@ For navigation it reports the path distance to the current objective, whether th
 toward it, their speed, revisited areas and reached objectives. Objectives are
 `NavigationObjective` actors placed in a level. Details: [docs/PIPELINE.md](docs/PIPELINE.md#navigation-telemetry).
 
+For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
+where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
+written to the session log. Details: [docs/SCENARIOS.md](docs/SCENARIOS.md).
+
 `ac.Debug 1` in the console shows a debug overlay with the pipeline's live values;
 `ac.Debug.Demo` fills it with test values. Details: [docs/DEBUG_OVERLAY.md](docs/DEBUG_OVERLAY.md).
 
@@ -69,10 +73,12 @@ toward it, their speed, revisited areas and reached objectives. Objectives are
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Companion/` | Companion character, AI controller and StateTree nodes |
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Context/` | Decides which gameplay context the game reports |
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Navigation/` | Navigation objectives and which one is current |
+| `AdaptiveCompanion/Source/AdaptiveCompanion/Scenario/` | Test scenarios that run in a level and log their phases |
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Telemetry/` | Reports telemetry that doesn't belong to a single actor (enemies near the player, movement toward the objective) |
 | `AdaptiveCompanion/Content/Companion/` | Our own assets (`BP_Companion`, `ST_Companion`, `DA_PipelineConfig`), stored via Git LFS |
-| `Scripts/` | Setup scripts |
-| `docs/` | Architecture, pipeline, assets, logging and debug overlay documentation |
+| `AdaptiveCompanion/Content/Scenarios/` | Our own test levels (`Lvl_CombatScenario`), stored via Git LFS |
+| `Scripts/` | Setup scripts, `rebuild_editor.sh` (quit the editor, build, reopen it) |
+| `docs/` | Architecture, pipeline, scenarios, assets, logging and debug overlay documentation |
 
 The framework lives in its own runtime plugin so it can be reused in other UE5 projects; the
 game module depends on it, never the other way round. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

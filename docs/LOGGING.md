@@ -55,7 +55,8 @@ NaN and infinity in a payload are written as `null`, so every line stays valid J
 | `context` | Context stage, whenever the game activates or deactivates a context | `name`, `active` (true / false), `contexts` (all active contexts after the change) |
 | `intervention` | Selection and Behavior stages, and the game through `ReportInterventionPhase` | `name`, `phase` (`selected`, `dispatched`, `started`, `ended`), more fields per phase ([PIPELINE.md](PIPELINE.md)) |
 
-The type names are in `AdaptiveLogRecordTypes.h`. Games may log their own types.
+The type names are in `AdaptiveLogRecordTypes.h`. Games may log their own types; this game logs
+`scenario` records for the phases of its test scenarios ([SCENARIOS.md](SCENARIOS.md#session-log)).
 
 If the process crashes, the file has no `session_end`, but every record up to the last flush
 (at most *Flush Interval* old) is complete.
