@@ -25,13 +25,14 @@ public class AdaptiveCompanion : ModuleRules
 			"AdaptiveCompanionFramework"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		PrivateDependencyModuleNames.AddRange(new string[] { "Json" });
 
 		PublicIncludePaths.AddRange(new string[] {
 			"AdaptiveCompanion",
 			"AdaptiveCompanion/Companion",
 			"AdaptiveCompanion/Context",
 			"AdaptiveCompanion/Navigation",
+			"AdaptiveCompanion/Scenario",
 			"AdaptiveCompanion/Telemetry",
 			"AdaptiveCompanion/Variant_Combat",
 			"AdaptiveCompanion/Variant_Combat/AI",
