@@ -126,6 +126,16 @@ The game reports how the player moves toward the current objective
 | `UNavigationTelemetrySubsystem` | World subsystem, runs in every game level. Reports `Nav.ObjectiveDistance`, `Nav.HeadingAlignment`, `Nav.Speed` at the check interval of `UGameplayContextSettings`, and `Nav.AreaRevisited` |
 | `UNavigationTelemetrySettings` | Project Settings > Game > Navigation Telemetry: cell size (5 m), minimum absence for a revisit (5 s), standing-still speed (0.5 m/s) |
 
+## Test scenarios (game module)
+
+Repeatable situations for testing the framework ([SCENARIOS.md](SCENARIOS.md)). The code is in
+`Source/AdaptiveCompanion/Scenario/`, the levels in `Content/Scenarios/`.
+
+| Class / asset | Role |
+|---|---|
+| `ACombatScenario` | Placed in a level. Runs its waves of enemies in order, restarts a wave when the player dies and writes every phase change to the session log as a `scenario` record. Phases are never reported to the pipeline |
+| `Lvl_CombatScenario` | Walled 30 × 30 m arena with one PlayerStart and an `ACombatScenario` in its center |
+
 ## Companion (game module)
 
 The companion lives in the game module under `Source/AdaptiveCompanion/Companion/`, with its
