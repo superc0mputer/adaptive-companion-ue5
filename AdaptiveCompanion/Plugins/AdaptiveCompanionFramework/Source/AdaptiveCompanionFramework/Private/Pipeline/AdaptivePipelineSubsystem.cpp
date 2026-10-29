@@ -134,6 +134,29 @@ bool UAdaptivePipelineSubsystem::IsContextActive(FName Name) const
 	return Context && Context->IsContextActive(Name);
 }
 
+void UAdaptivePipelineSubsystem::SetObjective(FName Name, FVector Location)
+{
+	if (Context)
+	{
+		Context->SetObjective(Name, Location);
+	}
+}
+
+void UAdaptivePipelineSubsystem::ClearObjective()
+{
+	if (Context)
+	{
+		Context->ClearObjective();
+	}
+}
+
+bool UAdaptivePipelineSubsystem::GetCurrentObjective(FName& Name, FVector& Location) const
+{
+	Name = Context ? Context->GetObjective() : NAME_None;
+	Location = Context ? Context->GetObjectiveLocation() : FVector::ZeroVector;
+	return !Name.IsNone();
+}
+
 void UAdaptivePipelineSubsystem::ReportInterventionPhase(FName Intervention, FName Phase)
 {
 	if (Behavior)
