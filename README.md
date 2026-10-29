@@ -54,12 +54,15 @@ In combat the game reports damage, health, attacks, hits on enemies, kills, deat
 enemies are near and how close. Details: [docs/PIPELINE.md](docs/PIPELINE.md#combat-telemetry).
 
 For navigation it reports the path distance to the current objective, whether the player heads
-toward it, their speed, revisited areas and reached objectives. Objectives are
+toward it, their speed, revisited areas and reached objectives, and tells the framework which
+objective is current. Objectives are
 `NavigationObjective` actors placed in a level. Details: [docs/PIPELINE.md](docs/PIPELINE.md#navigation-telemetry).
 
 For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
 where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
-written to the session log. Details: [docs/SCENARIOS.md](docs/SCENARIOS.md).
+written to the session log. `Lvl_NavigationScenario` is a maze with four objectives in a row,
+the third one without a beacon in a part full of dead ends and look-alike junctions, where players
+can get lost. Details: [docs/SCENARIOS.md](docs/SCENARIOS.md).
 
 `ac.Debug 1` in the console shows a debug overlay with the pipeline's live values;
 `ac.Debug.Demo` fills it with test values. Details: [docs/DEBUG_OVERLAY.md](docs/DEBUG_OVERLAY.md).
@@ -76,7 +79,7 @@ written to the session log. Details: [docs/SCENARIOS.md](docs/SCENARIOS.md).
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Scenario/` | Test scenarios that run in a level and log their phases |
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Telemetry/` | Reports telemetry that doesn't belong to a single actor (enemies near the player, movement toward the objective) |
 | `AdaptiveCompanion/Content/Companion/` | Our own assets (`BP_Companion`, `ST_Companion`, `DA_PipelineConfig`), stored via Git LFS |
-| `AdaptiveCompanion/Content/Scenarios/` | Our own test levels (`Lvl_CombatScenario`), stored via Git LFS |
+| `AdaptiveCompanion/Content/Scenarios/` | Our own test levels (`Lvl_CombatScenario`, `Lvl_NavigationScenario`), stored via Git LFS |
 | `Scripts/` | Setup scripts, `rebuild_editor.sh` (quit the editor, build, reopen it) |
 | `docs/` | Architecture, pipeline, scenarios, assets, logging and debug overlay documentation |
 

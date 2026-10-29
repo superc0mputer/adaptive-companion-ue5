@@ -121,8 +121,8 @@ The game reports how the player moves toward the current objective
 
 | Class | Role |
 |---|---|
-| `ANavigationObjective` | Placed in a level: *Order* and *Reach Radius* (3 m), shown as a pillar until reached. Registers itself with the subsystem on BeginPlay |
-| `UNavigationObjectiveSubsystem` | World subsystem. The current objective is the unreached one with the lowest Order; reaching it reports `Nav.ObjectiveReached` and broadcasts `OnObjectiveReached` |
+| `ANavigationObjective` | Placed in a level: *Order*, *Reach Radius* (3 m), *Show Beacon*, *Phase* (for the scenario log). Only shown while current: a pillar, plus a beacon above the walls if *Show Beacon*. Registers itself with the subsystem on BeginPlay |
+| `UNavigationObjectiveSubsystem` | World subsystem. The current objective is the unreached one with the lowest Order; it is shown and reported to the pipeline with `SetObjective`. Reaching it reports `Nav.ObjectiveReached` and broadcasts `OnObjectiveReached` |
 | `UNavigationTelemetrySubsystem` | World subsystem, runs in every game level. Reports `Nav.ObjectiveDistance`, `Nav.HeadingAlignment`, `Nav.Speed` at the check interval of `UGameplayContextSettings`, and `Nav.AreaRevisited` |
 | `UNavigationTelemetrySettings` | Project Settings > Game > Navigation Telemetry: cell size (5 m), minimum absence for a revisit (5 s), standing-still speed (0.5 m/s) |
 
@@ -134,7 +134,10 @@ Repeatable situations for testing the framework ([SCENARIOS.md](SCENARIOS.md)). 
 | Class / asset | Role |
 |---|---|
 | `ACombatScenario` | Placed in a level. Runs its waves of enemies in order, restarts a wave when the player dies and writes every phase change to the session log as a `scenario` record. Phases are never reported to the pipeline |
+| `ANavigationScenario` | Placed in a level with `ANavigationObjective`s. Logs `Start`, each objective's *Phase* (`started` when it becomes current, `reached`) and `End` |
+| `ScenarioLog` | Shared by both: writes the `scenario` record, the overlay line and the output log line |
 | `Lvl_CombatScenario` | Walled 30 × 30 m arena with one PlayerStart and an `ACombatScenario` in its center |
+| `Lvl_NavigationScenario` | 63 × 63 m maze with four objectives, from an easy corridor to a maze without landmarks |
 
 ## Companion (game module)
 

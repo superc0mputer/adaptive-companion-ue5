@@ -99,3 +99,89 @@ four enemies kill it, then clears the restarted wave after 3–6 s. Times in s s
 
 To start at a later wave while testing, set *First Wave* on the `CombatScenario` actor (Testing
 category), e.g. 2 for `Pressure`. Waves before it are skipped and not logged.
+
+## Navigation scenario
+
+`Content/Scenarios/Lvl_NavigationScenario` (#12). Open it and press Play. Four objectives have to
+be reached in order; only the current one is shown, as an orange pillar.
+
+| Phase | Leg | Shortest way | What makes it hard |
+|---|---|---|---|
+| `Start` | Level start | | |
+| `Corridor` | To objective 0 | 36 m | Nothing: one corridor, one turn, beacon visible |
+| `Branches` | To objective 1 | 30 m | Two dead-end branches; beacon visible |
+| `Maze` | To objective 2 | 132 m | Look-alike junctions, 6 dead ends, three loops, no landmarks and **no beacon**: the objective only shows in line of sight |
+| `Exit` | To objective 3 | 45 m | Little: the beacon shows the way out |
+| `End` | All objectives reached | | |
+
+**Beacons:** on `Corridor`, `Branches` and `Exit` a 25 m column above the objective shows over the
+4 m walls, so the player knows the direction but still has to find the path. `Maze` has none; it
+is the leg where players can plausibly get lost and the one the navigation need should pick up.
+
+**Repeatability:** the level is static, objectives and phases are fixed, and nothing in it is
+random. Times differ only by how the player moves.
+
+The framework knows the current objective (`GetCurrentObjective`, [PIPELINE.md](PIPELINE.md#objective)),
+reported by `UNavigationObjectiveSubsystem` whenever it changes.
+
+### Layout
+
+A 21 × 21 grid of 3 m blocks (63 × 63 m), block (0, 0) at world (−3150, −3150) cm, rows going
+north (+X), columns east (+Y). `#` is a 4 m high wall (`SM_Cube`, one actor per run of blocks in
+a row), `S` the PlayerStart (facing north), `A`–`D` objectives 0–3 at the block centers:
+
+```
+20 #####################
+19 ###########.........#
+18 ###########.#.#######
+17 ###.#######.#.......#
+16 ###.#########.#####.#
+15 ###.#####B..#.....#.#
+14 ###.#####.#.#######.#
+13 ###.......#.........#
+12 #########.#########.#
+11 #########.#.......#.#
+10 #########.#.#####.#.#
+ 9 #....A....#.#...#...#
+ 8 #.#####.###.#.#.#####
+ 7 #.#####.###.#.#.....#
+ 6 #.#####.###.#.#.###.#
+ 5 #.#####.###.#.#.....#
+ 4 #.#####.###.###.#.#.#
+ 3 #.#########...#.#C#.#
+ 2 #.###########.###.#.#
+ 1 #S#.D.............#.#
+ 0 #####################
+```
+
+The west half (`Corridor`, `Branches`) is laid out by hand; the maze east of column 10 is a perfect
+maze generated with a fixed seed, plus three openings for loops. `ANavigationScenario` is at the
+origin, the level has no game mode override. Objective *Phase* and *Show Beacon*: A `Corridor` ✓,
+B `Branches` ✓, C `Maze` ✗, D `Exit` ✓.
+
+### Session log
+
+`scenario` records like the combat scenario, with `scenario` = `Navigation`, `event` = `started`
+(the objective became current) or `reached`, and `objective` = its Order (−1 for `Start` and
+`End`). The objective itself is logged by the framework as `objective` records.
+
+### Example runs
+
+Two scripted `-game` runs where the player runs (5 m/s) along the corridor centers: *straight*
+takes the shortest way to every objective, *lost* takes three wrong turns into dead ends of the
+maze before finding objective 2. Time each leg took, and the navigation signals within it:
+
+| Leg | Straight: time | Alignment mean | Revisits | Lost: time | Alignment mean (share < 0) | Revisits | Max distance |
+|---|---|---|---|---|---|---|---|
+| `Corridor` | 12.0 s | 0.77 | 0 | 12.3 s | 0.72 | 0 | 33.9 m |
+| `Branches` | 6.0 s | 0.80 | 0 | 6.0 s | 0.80 | 0 | 30.6 m |
+| `Maze` | 25.2 s | 0.77 (2 %) | 0 | **59.5 s** | **0.36 (26 %)** | **11** | **126.8 m** (from 111) |
+| `Exit` | 8.6 s | 0.37 (25 %) | 0 | 9.1 s | 0.29 (22 %) | 0 | 41.9 m |
+
+Both runs log `Start`, every leg `started` and `reached` in order, and `End`. The objective record
+follows each leg (`Objective.0` … `Objective.3`, cleared at the end). Getting lost shows up only in
+`Maze`, in every signal: the leg takes more than twice as long, the player heads away from the
+objective a quarter of the time, revisits areas and the path distance grows instead of shrinking.
+`Exit` starts with turning around at objective 2, hence the negative alignment there in both runs.
+
+![The maze from above with the beacons of objectives 0, 1 and 3 (left; objective 2 has none) and the Maze leg in the game (right)](images/navigation-scenario.png)

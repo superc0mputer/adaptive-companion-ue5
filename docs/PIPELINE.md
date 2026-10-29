@@ -118,6 +118,36 @@ events (misses an approaching enemy that hasn't hit yet) and over the arena's ac
 
 ![Overlay in combat (left) and 3 s after leaving it (right)](images/context-overlay.png)
 
+### Objective
+
+The game also tells the framework where the player currently has to go (#12), e.g. for a
+navigation hint later (#20). Like contexts, the game pushes it and the framework only stores a
+name and a location:
+
+```cpp
+Pipeline->SetObjective(TEXT("Objective.2"), Objective->GetActorLocation());
+Pipeline->ClearObjective();
+
+FName Name;
+FVector Location;
+if (Pipeline->GetCurrentObjective(Name, Location)) { ... }
+```
+
+From Blueprint: *Set Objective*, *Clear Objective*, *Get Current Objective*. There is one objective
+at a time; setting another replaces it. Calls that change neither name nor location (by at least
+1 cm) are ignored.
+
+- Every change is logged right away as an `objective` record: `name`, `active` (false when
+  cleared), `x`, `y`, `z` in m.
+- Every update passes it on in `Frame.Objective` (`NAME_None` without one) and
+  `Frame.ObjectiveLocation`.
+- The overlay shows it in the Context section, e.g. `Objective  Objective.2 at (-21.0, 21.0) m`.
+
+**In this game** `UNavigationObjectiveSubsystem` reports the current `ANavigationObjective` as
+`Objective.<Order>` whenever it changes and clears it when the last one is reached or the level
+ends. Pushed rather than queried through an interface for the same reason as contexts: the
+framework stays free of game types, and every change ends up in the log.
+
 ## Combat telemetry
 
 The signals the game reports about combat (#8). All are raw: they are in game units (damage, count,
@@ -194,9 +224,11 @@ the combat signals they are raw (m, m/s, −1…1); features come in #13.
 | `Nav.ObjectiveReached` | event (Order) | The player gets within the current objective's reach radius (3 m); the next one becomes current | `UNavigationObjectiveSubsystem` |
 
 **Objectives:** `ANavigationObjective` actors placed in a level, reached in ascending *Order*.
-`UNavigationObjectiveSubsystem` tracks the current one (the unreached one with the lowest Order)
-and broadcasts `OnObjectiveReached`. A level without objectives only reports speed and revisits.
-The navigation level with real objectives comes in #12.
+`UNavigationObjectiveSubsystem` tracks the current one (the unreached one with the lowest Order),
+reports it to the framework ([Objective](#objective)) and broadcasts `OnObjectiveReached`. Only the
+current objective is shown: a 3 m pillar, and a 25 m beacon above it if *Show Beacon* is set. A
+level without objectives only reports speed and revisits. The navigation test level is
+[Lvl_NavigationScenario](SCENARIOS.md#navigation-scenario).
 
 **How progress is measured:** as the decrease of `Nav.ObjectiveDistance` over time. The path
 length along the navmesh is used instead of the straight line, because around walls and in dead
@@ -339,6 +371,7 @@ The pipeline adds these record types to the session log ([LOGGING.md](LOGGING.md
 | `feature` | When a feature changed | `name`, `value` |
 | `state` | When a need's level changed | `need`, `score`, `level` (`Normal` or `Elevated`). A need starts as Normal without a record |
 | `context` | When the game activates or deactivates a context | `name`, `active`, `contexts` (all active contexts after the change) |
+| `objective` | When the game sets or clears the objective | `name`, `active`, `x`, `y`, `z` (m) |
 | `intervention` | At every phase of an intervention | `name`, `phase`; `selected` adds `need` and `score`, `dispatched` adds `receivers` (number of listeners) |
 
 The phases are `selected` (Selection), `dispatched` (Behavior, right before `OnIntervention`) and
