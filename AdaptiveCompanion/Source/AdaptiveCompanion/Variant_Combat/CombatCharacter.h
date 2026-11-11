@@ -18,6 +18,8 @@ class UWidgetComponent;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogCombatCharacter, Log, All);
 
+DECLARE_MULTICAST_DELEGATE(FOnCombatCharacterDied);
+
 /**
  *  An enhanced Third Person Character with melee combat capabilities:
  *  - Combo attack string
@@ -192,6 +194,9 @@ public:
 	
 	/** Constructor */
 	ACombatCharacter();
+
+	/** Broadcast when the character runs out of HP, before it respawns */
+	FOnCombatCharacterDied OnDied;
 
 protected:
 

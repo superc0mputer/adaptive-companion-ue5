@@ -14,6 +14,9 @@
  *  - Every update passes the active contexts on in Frame.Contexts, and flags the update in which
  *    the set changed (Frame.bContextChanged).
  *
+ *  The game also reports the player's current objective (SetObjective), e.g. the next place to
+ *  reach in a navigation level. It is logged as objective records and passed on in Frame.Objective.
+ *
  *  Selection doesn't use the context yet; filtering interventions by context comes in #17, #18.
  */
 UCLASS(meta = (DisplayName = "Context Stage"))
@@ -31,6 +34,16 @@ public:
 	/** The active contexts, in the order they became active */
 	const TArray<FName>& GetActiveContexts() const { return Active; }
 
+	/** Sets the objective the player currently works toward. Calls that don't change name or location are ignored */
+	virtual void SetObjective(FName Name, const FVector& Location);
+
+	/** The player has no objective (any more) */
+	virtual void ClearObjective();
+
+	/** NAME_None if there is no objective */
+	FName GetObjective() const { return Objective; }
+	const FVector& GetObjectiveLocation() const { return ObjectiveLocation; }
+
 	virtual void Update(FAdaptivePipelineFrame& Frame) override;
 
 protected:
@@ -38,7 +51,12 @@ protected:
 	void LogChange(FName Name, bool bActive) const;
 	void ShowInOverlay(FName Name, bool bActive) const;
 
+	void LogObjective(FName Name, bool bActive) const;
+
 	TArray<FName> Active;
+
+	FName Objective;
+	FVector ObjectiveLocation = FVector::ZeroVector;
 
 	/** The active contexts as passed on in the previous update, to detect changes between updates */
 	TArray<FName> PreviousActive;

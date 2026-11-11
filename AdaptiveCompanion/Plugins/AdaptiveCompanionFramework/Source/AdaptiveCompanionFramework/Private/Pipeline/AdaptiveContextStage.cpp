@@ -25,9 +25,46 @@ void UAdaptiveContextStage::SetContext(FName Name, bool bActive)
 	ShowInOverlay(Name, bActive);
 }
 
+void UAdaptiveContextStage::SetObjective(FName Name, const FVector& Location)
+{
+	// a moving objective only counts as changed once it moved at least 1 cm
+	if (Name.IsNone() || (Name == Objective && Location.Equals(ObjectiveLocation, 1.0)))
+	{
+		return;
+	}
+
+	Objective = Name;
+	ObjectiveLocation = Location;
+	LogObjective(Name, true);
+
+	if (UAdaptiveDebugSubsystem* Debug = GetDebug())
+	{
+		Debug->SetText(EAdaptiveDebugSection::Context, TEXT("Objective"), FString::Printf(TEXT("%s at (%.1f, %.1f) m"), *Name.ToString(), Location.X / 100.0, Location.Y / 100.0));
+	}
+}
+
+void UAdaptiveContextStage::ClearObjective()
+{
+	if (Objective.IsNone())
+	{
+		return;
+	}
+
+	const FName Cleared = Objective;
+	Objective = NAME_None;
+	LogObjective(Cleared, false);
+
+	if (UAdaptiveDebugSubsystem* Debug = GetDebug())
+	{
+		Debug->SetText(EAdaptiveDebugSection::Context, TEXT("Objective"), TEXT("none"));
+	}
+}
+
 void UAdaptiveContextStage::Update(FAdaptivePipelineFrame& Frame)
 {
 	Frame.Contexts.Append(Active);
+	Frame.Objective = Objective;
+	Frame.ObjectiveLocation = ObjectiveLocation;
 
 	// compared as sets: a context that was switched off and on again between two updates is no change
 	Frame.bContextChanged = PreviousActive.Num() != Active.Num()
@@ -50,6 +87,21 @@ void UAdaptiveContextStage::LogChange(FName Name, bool bActive) const
 		Payload->SetBoolField(TEXT("active"), bActive);
 		Payload->SetArrayField(TEXT("contexts"), ActiveNames);
 		Log->LogRecord(AdaptiveLogRecordType::Context, Payload);
+	}
+}
+
+void UAdaptiveContextStage::LogObjective(FName Name, bool bActive) const
+{
+	if (UAdaptiveLogSubsystem* Log = GetLog())
+	{
+		// in m like the navigation signals, rounded to cm
+		TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
+		Payload->SetStringField(TEXT("name"), Name.ToString());
+		Payload->SetBoolField(TEXT("active"), bActive);
+		Payload->SetNumberField(TEXT("x"), FMath::RoundToDouble(ObjectiveLocation.X) / 100.0);
+		Payload->SetNumberField(TEXT("y"), FMath::RoundToDouble(ObjectiveLocation.Y) / 100.0);
+		Payload->SetNumberField(TEXT("z"), FMath::RoundToDouble(ObjectiveLocation.Z) / 100.0);
+		Log->LogRecord(AdaptiveLogRecordType::Objective, Payload);
 	}
 }
 

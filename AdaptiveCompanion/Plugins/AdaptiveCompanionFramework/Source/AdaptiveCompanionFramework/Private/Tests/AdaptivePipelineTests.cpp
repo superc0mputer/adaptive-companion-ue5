@@ -179,6 +179,48 @@ bool FAdaptivePipelineContextTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptivePipelineObjectiveTest, "AdaptiveCompanion.Pipeline.Objective",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FAdaptivePipelineObjectiveTest::RunTest(const FString& Parameters)
+{
+	const FName First = TEXT("Objective.0");
+	const FName Second = TEXT("Objective.1");
+
+	UAdaptiveContextStage* Stage = NewObject<UAdaptiveContextStage>();
+
+	auto Run = [&]()
+	{
+		FAdaptivePipelineFrame Frame;
+		Stage->Update(Frame);
+		return Frame;
+	};
+
+	FAdaptivePipelineFrame Frame = Run();
+	TestTrue(TEXT("No objective at the start"), Frame.Objective.IsNone());
+
+	Stage->SetObjective(First, FVector(100.0, 200.0, 0.0));
+	Frame = Run();
+	TestEqual(TEXT("Objective passed on"), Frame.Objective, First);
+	TestEqual(TEXT("Location passed on"), Frame.ObjectiveLocation, FVector(100.0, 200.0, 0.0));
+
+	Stage->SetObjective(First, FVector(500.0, 200.0, 0.0));
+	TestEqual(TEXT("A moved objective updates its location"), Stage->GetObjectiveLocation(), FVector(500.0, 200.0, 0.0));
+
+	Stage->SetObjective(Second, FVector(0.0, 0.0, 0.0));
+	Frame = Run();
+	TestEqual(TEXT("Next objective replaces the previous one"), Frame.Objective, Second);
+
+	Stage->SetObjective(NAME_None, FVector(1.0, 1.0, 1.0));
+	TestEqual(TEXT("NAME_None is ignored"), Stage->GetObjective(), Second);
+
+	Stage->ClearObjective();
+	Frame = Run();
+	TestTrue(TEXT("Cleared"), Frame.Objective.IsNone());
+
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptivePipelineSelectionTest, "AdaptiveCompanion.Pipeline.Selection",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
 

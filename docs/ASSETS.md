@@ -25,9 +25,13 @@ re-running the script only fills in what is missing; pass `--force` / `-Force` t
 | Folder | Contents |
 |---|---|
 | `Content/Companion/` | `BP_Companion` (companion Blueprint), `ST_Companion` (companion StateTree) |
+| `Content/Scenarios/` | `Lvl_CombatScenario`, `Lvl_NavigationScenario` (test levels, [SCENARIOS.md](SCENARIOS.md)) |
 
-These reference Epic's mannequin assets (`SKM_Quinn_Simple`, `ABP_Unarmed`), so run the setup
-script before opening them.
+These reference Epic's assets (the mannequins `SKM_Quinn_Simple` and `ABP_Unarmed`; the
+LevelPrototyping cube, `BP_CombatEnemy` and `BP_CombatGameMode` from the Combat variant) without
+containing them, so run the setup script before opening them. Both scenario levels started as
+copies of the engine's empty level template (`/Engine/Maps/Templates/Template_Default`: sky,
+lights, floor); they don't use World Partition, so all their actors are in the one `.umap`.
 
 ## Third-party packs
 

@@ -24,6 +24,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAdaptiveInterventionDelegate, FName
  *    ReportValue("Player.Health", 0.4)       current value of something continuous
  *
  *    SetContext("Context.Combat", true)      what the player is currently doing, several at once
+ *    SetObjective("Objective.2", Location)   where the player currently has to go
  *
  *  The selected interventions come back to the game through OnIntervention; the game carries them
  *  out and reports their phases with ReportInterventionPhase.
@@ -61,6 +62,18 @@ public:
 	/** True if the game reported the context as active */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Companion|Context")
 	bool IsContextActive(FName Name) const;
+
+	/** Sets the objective the player currently works toward, e.g. the next place to reach. Logged right away; repeated calls with the same name and location are ignored */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Companion|Context")
+	void SetObjective(FName Name, FVector Location);
+
+	/** The player has no objective (any more), e.g. after reaching the last one */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Companion|Context")
+	void ClearObjective();
+
+	/** The objective the game reported last. Returns false if there is none */
+	UFUNCTION(BlueprintPure, Category = "Adaptive Companion|Context")
+	bool GetCurrentObjective(FName& Name, FVector& Location) const;
 
 	/** Called when the pipeline selected an intervention. The game carries it out, e.g. by sending its companion an event */
 	UPROPERTY(BlueprintAssignable, Category = "Adaptive Companion|Behavior")

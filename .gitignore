@@ -30,6 +30,7 @@ AdaptiveCompanion/Plugins/**/Intermediate/
 # Everything in Content/ is ignored except folders we author (add them below).
 AdaptiveCompanion/Content/*
 !AdaptiveCompanion/Content/Companion/
+!AdaptiveCompanion/Content/Scenarios/
 
 # --- Local tooling ---
 .mcp.json

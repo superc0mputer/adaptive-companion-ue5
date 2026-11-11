@@ -58,6 +58,12 @@ struct FAdaptivePipelineFrame
 	/** 4 Context: true only in the update where Contexts differs from the previous update */
 	bool bContextChanged = false;
 
+	/** 4 Context: the objective the game reported as current, NAME_None for none */
+	FName Objective;
+
+	/** 4 Context: world location of Objective */
+	FVector ObjectiveLocation = FVector::ZeroVector;
+
 	/** 5 Selection: the intervention to start in this update, NAME_None for none */
 	FName Intervention;
 };

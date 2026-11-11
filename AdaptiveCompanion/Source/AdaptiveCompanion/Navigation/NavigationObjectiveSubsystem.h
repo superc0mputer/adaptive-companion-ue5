@@ -14,7 +14,9 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnNavigationObjectiveReached, ANavigationOb
  *  to the pipeline as Nav.ObjectiveReached (value = its Order) and broadcast in OnObjectiveReached.
  *
  *  Objectives register themselves on BeginPlay, so levels without any simply have no current
- *  objective. Uses the check interval of UGameplayContextSettings.
+ *  objective. Only the current one is shown, and it is reported to the pipeline with
+ *  SetObjective ("Objective.<Order>") whenever it changes. Uses the check interval of
+ *  UGameplayContextSettings.
  */
 UCLASS()
 class ADAPTIVECOMPANION_API UNavigationObjectiveSubsystem : public UWorldSubsystem
@@ -40,8 +42,16 @@ protected:
 
 	void CheckReached();
 
+	/** Shows only the current objective and reports it to the pipeline, if it changed */
+	void UpdateCurrent();
+
 	UPROPERTY()
 	TArray<TObjectPtr<ANavigationObjective>> Objectives;
+
+	/** The current objective as last shown and reported */
+	TWeakObjectPtr<ANavigationObjective> ReportedCurrent;
+
+	bool bReportedAny = false;
 
 	FTimerHandle CheckTimer;
 };

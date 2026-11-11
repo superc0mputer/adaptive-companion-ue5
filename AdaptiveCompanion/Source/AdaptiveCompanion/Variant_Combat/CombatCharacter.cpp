@@ -466,6 +466,8 @@ void ACombatCharacter::HandleDeath()
 		Pipeline->ReportEvent(TEXT("Combat.PlayerDied"));
 	}
 
+	OnDied.Broadcast();
+
 	// disable movement while we're dead
 	GetCharacterMovement()->DisableMovement();
 
