@@ -48,10 +48,12 @@ NaN and infinity in a payload are written as `null`, so every line stays valid J
 | `level_start` | Logger, when a level begins play | `map`, `game_mode` |
 | `pipeline_start` | Pipeline, at session start | `config`, `update_rate`, `pause_with_game`, `stages` ([PIPELINE.md](PIPELINE.md)) |
 | `feature_definitions` | Feature stage, right after `pipeline_start` | `features`: every feature's definition ([PIPELINE.md](PIPELINE.md#features)) |
+| `need_definitions` | Need stage, after `feature_definitions` | `estimator` (class), `threshold`, and the estimator's definitions; rule-based: `dimensions` with their `rules`, `required_contexts`, `requires_objective` ([PIPELINE.md](PIPELINE.md#assistance-need)) |
 | `marker` | `ac.Log.Marker <text>` | `text` |
 | `session_end` | Logger, last record | `duration` (s), `records` (including this one) |
 | `signal` | Telemetry stage, for every reported event and every changed value | `name`, `kind` (`event` / `value`), `value` |
 | `feature` | Feature stage, when a feature's value rounded to 0.01 changed | `name`, `value`, `raw` (before normalization, `null` without data) |
+| `need` | Need stage, when a dimension's score rounded to 0.01, its reason or whether it is active changed | `need`, `score`, `active`, `reason` (strongest rule, empty if none fires) |
 | `state` | Need stage, when a need's level changed | `need`, `score`, `level` (`Normal` / `Elevated`) |
 | `context` | Context stage, whenever the game activates or deactivates a context | `name`, `active` (true / false), `contexts` (all active contexts after the change) |
 | `objective` | Context stage, whenever the game sets or clears the objective | `name`, `active` (false when cleared), `x`, `y`, `z` (m) |
