@@ -83,6 +83,12 @@ or High, with separate thresholds for entering and leaving each level. A score t
 a threshold or jumps back and forth no longer makes the level flicker, and a full-strength problem
 still becomes Elevated within 0.5 s. Details: [docs/PIPELINE.md](docs/PIPELINE.md#need-levels).
 
+The companion's actions are config assets that say which needs each one helps with, in which
+contexts it fits, and how costly and intrusive it is: a navigation hint, a threat call-out and
+drawing an enemy's attention. The companion registers them with the framework, which checks every
+update whether each one is possible (right context, and the game says yes, e.g. an enemy is out
+of view). Details: [docs/PIPELINE.md](docs/PIPELINE.md#companion-actions).
+
 For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
 where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
 written to the session log. `Lvl_NavigationScenario` is a maze with four objectives in a row,
