@@ -92,7 +92,9 @@ class UAdaptiveCompanionActionHandler : public UInterface
 
 /**
  *  Implemented by the game object that carries out a set of actions, e.g. the companion's AI
- *  controller. The pipeline asks it every update whether each of its actions is possible.
+ *  controller. The pipeline asks it every update whether each of its actions is possible, and tells
+ *  it to carry one out when Selection picked it. The handler then reports the action's phases with
+ *  UAdaptivePipelineSubsystem::ReportInterventionPhase (started, then completed, failed or interrupted).
  */
 class ADAPTIVECOMPANIONFRAMEWORK_API IAdaptiveCompanionActionHandler
 {
@@ -103,6 +105,10 @@ public:
 	/** Whether the action can be carried out right now, given the game state. Contexts are already checked by the framework */
 	UFUNCTION(BlueprintNativeEvent, Category = "Adaptive Companion|Actions")
 	FAdaptiveActionCheck CheckAction(const UAdaptiveCompanionAction* Action);
+
+	/** Starts carrying out the action. Returns false if it can't (logged as rejected) */
+	UFUNCTION(BlueprintNativeEvent, Category = "Adaptive Companion|Actions")
+	bool PerformAction(const UAdaptiveCompanionAction* Action);
 };
 
 /** One registered action and the object that carries it out */

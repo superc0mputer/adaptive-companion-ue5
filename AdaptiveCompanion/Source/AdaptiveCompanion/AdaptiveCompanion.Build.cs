@@ -27,6 +27,12 @@ public class AdaptiveCompanion : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[] { "Json" });
 
+		// the CompanionStateTree commandlet edits the StateTree asset (#19)
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "StateTreeEditorModule", "StateTreeModule", "PropertyBindingUtils" });
+		}
+
 		PublicIncludePaths.AddRange(new string[] {
 			"AdaptiveCompanion",
 			"AdaptiveCompanion/Companion",
