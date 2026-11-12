@@ -124,3 +124,15 @@ namespace AdaptiveFeatureMath
 		return Samples.RightChop(First);
 	}
 }
+
+double AdaptiveFeatureMath::RoundTo(double Value, double Step)
+{
+	// for steps like 0.01 divide by the whole number 100 instead of multiplying by 0.01, so the
+	// result is the double closest to 0.83 and the log shows 0.83, not 0.8300000000000001
+	const double Inverse = FMath::RoundToDouble(1.0 / Step);
+	if (Inverse >= 1.0 && FMath::IsNearlyEqual(Inverse * Step, 1.0))
+	{
+		return FMath::RoundToDouble(Value * Inverse) / Inverse;
+	}
+	return FMath::RoundToDouble(Value / Step) * Step;
+}

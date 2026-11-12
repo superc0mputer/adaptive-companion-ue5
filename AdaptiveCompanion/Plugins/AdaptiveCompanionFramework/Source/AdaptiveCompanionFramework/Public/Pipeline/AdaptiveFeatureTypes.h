@@ -120,4 +120,7 @@ namespace AdaptiveFeatureMath
 
 	/** The samples younger than WindowStart, given samples oldest first */
 	ADAPTIVECOMPANIONFRAMEWORK_API TConstArrayView<FAdaptiveFeatureSample> After(TConstArrayView<FAdaptiveFeatureSample> Samples, double WindowStart);
+
+	/** Value rounded to a multiple of Step, for logging only when a value visibly changed */
+	ADAPTIVECOMPANIONFRAMEWORK_API double RoundTo(double Value, double Step);
 }

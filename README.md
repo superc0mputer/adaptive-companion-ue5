@@ -69,6 +69,15 @@ ratio, latest, mean, slope, share below or above a threshold) and maps it from a
 [0, 1]. They are defined in `DA_PipelineConfig`, not in code, logged and shown in the overlay.
 Details: [docs/PIPELINE.md](docs/PIPELINE.md#features).
 
+From the features, the framework estimates four assistance needs in [0, 1]: combat (struggling in
+a fight), threat (an enemy the player doesn't see), navigation (not getting closer to the
+objective) and disorientation (not knowing where to go). Each need is a list of rules like
+`Nav.StandingStill & Camera.LookingAround`; a rule fires with its weight times its weakest
+feature, and the rules are combined by noisy-OR. A need only counts in its gameplay context
+(combat needs in combat). The strongest rule is logged and shown in the overlay as the reason.
+Rules, weights and contexts are in `DA_PipelineConfig`, and the estimator can be swapped (machine
+learning in #43). Details: [docs/PIPELINE.md](docs/PIPELINE.md#assistance-need).
+
 For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
 where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
 written to the session log. `Lvl_NavigationScenario` is a maze with four objectives in a row,

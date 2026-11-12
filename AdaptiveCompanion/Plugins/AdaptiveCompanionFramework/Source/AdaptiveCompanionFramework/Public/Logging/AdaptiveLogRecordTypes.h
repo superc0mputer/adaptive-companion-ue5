@@ -24,12 +24,16 @@ namespace AdaptiveLogRecordType
 	/** The feature definitions the Features stage runs with */
 	inline const FString FeatureDefinitions = TEXT("feature_definitions");
 
+	/** The estimator the Need stage runs with and its definitions (rules, weights, context gates) */
+	inline const FString NeedDefinitions = TEXT("need_definitions");
+
 	/** Manual marker, e.g. from the console command ac.Log.Marker */
 	inline const FString Marker = TEXT("marker");
 
 	/** Pipeline stages */
 	inline const FString Signal = TEXT("signal");
 	inline const FString Feature = TEXT("feature");
+	inline const FString Need = TEXT("need");
 	inline const FString State = TEXT("state");
 	inline const FString Context = TEXT("context");
 	inline const FString Objective = TEXT("objective");

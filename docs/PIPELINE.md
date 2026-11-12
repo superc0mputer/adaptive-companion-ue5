@@ -12,18 +12,20 @@ API the game reports telemetry through. It is part of the framework plugin
 |---|---|---|---|
 | 1 | Telemetry | `UAdaptiveTelemetryStage` | Collects what the game reports, logs it, shows it in the overlay |
 | 2 | Features | `UAdaptiveFeatureStage` | Aggregates signals over time windows into features in [0, 1], defined in the config asset ([Features](#features)) |
-| 3 | Assistance Need | `UAdaptiveNeedStage` | Naive: one dimension, one threshold, real estimation in #14, #15 |
-| 4 | Context | `UAdaptiveContextStage` | Holds the contexts the game reports ([Gameplay context](#gameplay-context)), not used by Selection yet |
+| 3 | Assistance Need | `UAdaptiveNeedStage` | Scores the need dimensions with a swappable estimator, rule-based by default ([Assistance need](#assistance-need)); levels are one threshold until #15 |
+| 4 | Context | `UAdaptiveContextStage` | Holds the contexts the game reports ([Gameplay context](#gameplay-context)); gates the need dimensions, not used by Selection yet |
 | 5 | Intervention Selection | `UAdaptiveSelectionStage` | Naive: one fixed intervention, utility selection in #18 |
 | 6 | Behavior | `UAdaptiveBehaviorStage` | Hands the intervention to the game and logs its phases, status tracking in #19 |
 
 Every update, `UAdaptivePipelineSubsystem` creates one `FAdaptivePipelineFrame` and passes it
-through the stages in this order. Each stage reads what the stages before it wrote and adds its
-own output. Context (4) runs before Selection (5), which is the only stage that needs it.
+through the stages. Each stage reads what the stages before it wrote and adds its own output.
+Context (4) runs before Need (3), because the need dimensions are gated by the active contexts;
+it only copies what the game reported, so it doesn't depend on stages 1–3. The update order is
+1, 2, 4, 3, 5, 6.
 
 ```
-Game ──ReportEvent / ReportValue──▶ 1 Telemetry ─▶ 2 Features ─▶ 3 Need ─▶ 4 Context ─▶ 5 Selection ─▶ 6 Behavior
-     ──SetContext─────────────────────────────────────────────────────────▶
+Game ──ReportEvent / ReportValue──▶ 1 Telemetry ─▶ 2 Features ─▶ 4 Context ─▶ 3 Need ─▶ 5 Selection ─▶ 6 Behavior
+     ──SetContext───────────────────────────────────────▶
                                          └─────────────── FAdaptivePipelineFrame, once per update ──────────────┘
 Game ◀──────────────────────────────────────── OnIntervention ───────────────────────────────────────────────┘
      ──ReportInterventionPhase──▶ 6 Behavior
@@ -85,7 +87,8 @@ ignored, so the game can report its contexts every frame.
 - A change is logged as a `context` record the moment the game reports it, like events.
 - Every update passes the active contexts in `Frame.Contexts`, in the order they became active.
   `Frame.bContextChanged` is true in the update where the set differs from the previous update.
-- Selection doesn't use the context yet; filtering interventions by context comes in #17, #18.
+- The Need stage gates its dimensions by them ([Assistance need](#assistance-need)). Selection
+  doesn't use the context yet; filtering interventions by context comes in #17, #18.
 
 Entering and leaving combat in a `-game` run of `Lvl_Combat` (payloads shortened):
 
@@ -530,6 +533,147 @@ first exchange (payloads shortened):
 
 ![Features while standing and looking around in the maze (left) and while an enemy attacks from behind (right)](images/feature-extraction.png)
 
+## Assistance need
+
+The Need stage (#14) turns the features into one score in [0, 1] per assistance-need dimension:
+how much help the player needs, and of what kind. The scores come from an **estimator**, an
+object inside the stage that is picked in the config asset (*3 Assistance Need › Estimator*). The
+rule-based estimator (`UAdaptiveRuleNeedEstimator`) is the default; a machine learning one (#43)
+implements the same interface (`UAdaptiveNeedEstimator::Estimate`) and plugs into the same slot.
+
+```
+Frame.Features ─▶ rules: weight × min(features) ─▶ noisy-OR per dimension ─▶ context gate ─▶ Frame.Needs
+```
+
+### Definition
+
+Dimensions are defined in the config asset (*Estimator › Dimensions*), not in code. The
+estimator's built-in list holds only the first loop's `Combat` = `Combat.DamageRecent`, so a config
+without rules still drives the naive Selection stage.
+
+| Field | |
+|---|---|
+| Name | Name in `Frame.Needs`, the log and the overlay |
+| Rules | Each rule: optional *Name*, a list of *Features* (each with *Not*, which reads 1 − value) and a *Weight* in [0, 1] |
+| Required Contexts | The dimension is evaluated only while all of these contexts are active |
+| Requires Objective | The dimension is evaluated only while the game reports an objective |
+
+- A **rule** fires with `Weight × min(feature values)`. A feature the Features stage doesn't
+  compute counts as 0 and is warned about once; a rule without features never fires.
+- A **dimension** is the noisy-OR of its rules: `1 − Π(1 − rule)`.
+- While a gate is closed the dimension is **inactive** and its score is 0.
+- The **reason** is the rule that contributes most, by its *Name* or its features
+  (`Nav.NoProgress & Nav.Misalignment & not Nav.StandingStill`); empty if no rule fires.
+- A dimension without a name, or with the name of an earlier one, is skipped with a warning.
+
+`Frame.Needs` holds an `FAdaptiveNeedState` per dimension: `Score`, `bActive`, `Reason`, and the
+level `bElevated` / `bChanged`. Levels are still the first loop's single *Threshold* (0.6) on the
+raw score; smoothing and proper levels are #15.
+
+### Decisions
+
+**Dimensions.** Four kinds of help the companion can give: *combat* (struggling in a fight),
+*threat* (not aware of an enemy), *navigation* (not getting closer to the objective) and
+*disorientation* (not knowing where to go). They are split so that each one points to a
+different intervention, and so the classification test (H1) can tell them apart. Combat vs.
+threat separates "losing" from "not seeing it coming"; navigation vs. disorientation separates
+"moving the wrong way" from "stopped and searching".
+
+**Rules with min.** A rule is only high while all of its features are high. That is how
+ambiguous signals are handled: looking around alone may be exploration, but standing still and
+looking around is searching; a high miss rate alone may be swinging at air while approaching, but
+missing while taking damage is trading badly. The min (a fuzzy AND) is used instead of a product,
+which would shrink quickly with every extra feature (0.7 × 0.7 × 0.7 = 0.34).
+
+**Noisy-OR between rules.** One strong rule is enough on its own (low health while getting hit),
+several moderate ones add up, and the score stays in [0, 1] without renormalizing. Rejected:
+
+- *Weighted mean* (the exposé's "configurable combination"): dilutes. Low health would be averaged
+  away by the features that are 0, and adding a feature weakens all the others.
+- *Max*: ignores several moderate signals together.
+- *Clamped sum*: saturates at 1 and loses the order between strong cases.
+
+**Context gates.** A combat need outside combat, or a navigation need without an objective,
+means nothing, and some features keep values from before (e.g. `Combat.DeathRecent` for 60 s).
+Gating to 0 instead of freezing the last score lets the smoothing in #15 decay it. The Context
+stage therefore runs before the Need stage; it only copies what the game reported.
+
+**Interpretable and swappable.** Every score can be traced to the rule behind it, which the log
+and the overlay show. This matters for the thesis (why did the companion help?) and for tuning
+(#16). The estimator sits behind an interface so the machine learning estimator (#43) can be
+compared on the same features and the same levels.
+
+### Rules in this game
+
+Set in `Content/Companion/DA_PipelineConfig`. The weights are first values; #16 tunes them.
+
+| Dimension | Gate | Rule | Weight |
+|---|---|---|---|
+| Combat | `Context.Combat` | `HealthLow & DamageRecent`: losing health right now | 1.0 |
+| | | `HealthLow` | 0.5 |
+| | | `MissRate & DamageRecent`: trading badly | 0.8 |
+| | | `DeathRecent` | 0.6 |
+| Threat | `Context.Combat` | `EnemiesUnseen & Proximity`: an enemy close and out of view | 1.0 |
+| | | `EnemiesUnseen & DamageRecent`: hit by an enemy out of view | 1.0 |
+| | | `EnemiesNear`: outnumbered | 0.5 |
+| Navigation | `Context.Navigation`, objective | `NoProgress & Misalignment & not StandingStill`: walking the wrong way | 1.0 |
+| | | `Revisits & not StandingStill`: going in circles | 0.8 |
+| Disorientation | `Context.Navigation`, objective | `StandingStill & LookingAround`: stopped and searching | 1.0 |
+| | | `StandingStill & NoProgress & LookingAway`: stopped, facing away from the goal | 0.8 |
+| | | `StandingStill & Revisits`: stopped after going in circles | 0.8 |
+
+(Feature names without their `Combat.` / `Threat.` / `Nav.` / `Camera.` prefix.)
+
+- `not StandingStill` keeps the 0.5 that `Misalignment` shows while standing (#13) out of
+  navigation.
+- Revisits only count as navigation while moving. The 30 s window keeps them for a while after
+  the player stops, and a player who went in circles and then stopped is lost, not walking the
+  wrong way. Without this, the first scripted run below scored navigation 0.85 and
+  disorientation 0.58 while standing and looking around.
+- `Input.Idle` is not used: a long idle means "away or thinking", not lost, and every
+  disorientation rule already needs the player to be doing something (turning the camera).
+
+### Logging and overlay
+
+- At session start a `need_definitions` record lists the estimator class, the threshold and the
+  dimensions with their rules and gates.
+- A `need` record (`need`, `score`, `active`, `reason`) is written when a dimension's score rounded
+  to *Log Step* (0.01), its reason or whether it is active changed. `state` records still mark
+  level changes.
+- The overlay shows every dimension as a bar in section *3 Assistance Need*, and below it
+  `<dimension> why`: the level and the strongest rule, or *inactive in this context*.
+
+In a 50 s navigation run the four dimensions wrote 298 `need` records (of 2493).
+
+### Verification
+
+The same scripted `-game` runs as for the features (#13). `Lvl_NavigationScenario`, averaged per
+phase at 10 Hz:
+
+| Need | Straight to objectives | Backtracking | Standing, looking around |
+|---|---|---|---|
+| Navigation | 0.03 | **0.64** | 0.35 |
+| Disorientation | 0.11 | 0.03 | **0.82** |
+| Combat, Threat | inactive | inactive | inactive |
+
+Navigation becomes Elevated 4 s into backtracking (`NoProgress & Misalignment & not
+StandingStill`, later `Revisits & not StandingStill`). When the player stops, disorientation
+becomes Elevated within 2 s and navigation drops back to Normal 3 s later, as the standing-still
+share fills its 10 s window; the 0.35 average is those first seconds. Disorientation while going
+straight (up to 0.27) comes from the camera turning at corners and the player standing before the
+run starts.
+
+`Lvl_CombatScenario` (standing with a fixed camera, swinging every 1.5 s while the WarmUp enemy
+attacks): navigation and disorientation turn inactive when combat starts. Threat is 0.13 while the
+enemy is in view (`EnemiesNear`) and 0.56 while it circles behind the player (`EnemiesUnseen &
+Proximity`). Combat stays 0 until the first hit, then 0.40 and 0.67 after the second
+(`HealthLow & DamageRecent`, Elevated, which selects the placeholder intervention), and falls to
+0.20 (`HealthLow`) as the hits leave the 5 s window. When the enemy moves along the edge of the
+view, threat jumps between 0.13 and 0.74 several times within a second. That flicker is what the
+smoothing in #15 is for.
+
+![Disorientation while standing and looking around in the maze (left), combat need after the second hit (right)](images/need-estimation.png)
+
 ## First loop
 
 The first version of stages 2–6 is deliberately naive (#6): one signal, one score, one
@@ -543,16 +687,16 @@ ACombatCharacter::TakeDamage ─ Combat.DamageTaken ─▶ Combat.DamageRecent �
 | Stage | What it does now | Parameters (defaults) |
 |---|---|---|
 | 2 Features | Sums the values of one event over a sliding window, divides by a fixed maximum, clamps to [0, 1]. Since #13 this is one entry of the general [Features](#features) stage | `Combat.DamageRecent`: `Combat.DamageTaken` → Sum, 5 s, 0–5 |
-| 3 Need | One dimension whose score is one feature; *Elevated* at or above the threshold, otherwise *Normal* | *Need Name* `Combat`, *Feature Name* `Combat.DamageRecent`, *Threshold* 0.6 |
+| 3 Need | One dimension whose score is one feature; *Elevated* at or above the threshold, otherwise *Normal*. Since #14 this is the default of the rule-based [estimator](#assistance-need) | `Combat` = rule `Combat.DamageRecent`, *Threshold* 0.6 |
 | 5 Selection | Selects one intervention in the update where the need becomes Elevated; again only after it was Normal | *Need Name* `Combat`, *Intervention Name* `Intervention.Combat.Placeholder` |
 | 6 Behavior | Broadcasts the selected intervention on `OnIntervention` | |
 
-With the player's 5 HP and the enemies' 1 damage per hit, three hits within 5 s make the Combat
-need Elevated. The parameters are on the stage objects in the config asset, so they can be tuned
+With the framework defaults, three hits within 5 s make the Combat need Elevated. This game's
+rules (#14) make it Elevated already at the second hit while health is low, and only in combat. The parameters are on the stage objects in the config asset, so they can be tuned
 without recompiling.
 
 Results are added to `FAdaptivePipelineFrame`: `Features` (name → value), `Needs` (name →
-`FAdaptiveNeedState` with `Score`, `bElevated`, `bChanged`) and `Intervention`.
+`FAdaptiveNeedState` with `Score`, `bActive`, `Reason`, `bElevated`, `bChanged`) and `Intervention`.
 
 ### Receiving interventions
 
@@ -599,7 +743,8 @@ Companion Pipeline (`UAdaptivePipelineSettings`, saved to `DefaultGame.ini`).
 | Stages › 1 Telemetry … 6 Behavior | The stage's base class | Which class runs each stage, with its parameters. An empty slot uses the base class |
 | Telemetry › Log Every Update | false | Log every value at every update instead of only on change |
 | Features › Features, Log Step | see [Features](#features) | The feature definitions, and the rounding step for logging |
-| Need, Selection › ... | see [First loop](#first-loop) | Parameters of the naive stages |
+| Need › Estimator, Threshold, Log Step | see [Assistance need](#assistance-need) | The estimator with its dimensions and rules, the level threshold, the rounding step for logging |
+| Selection › ... | see [First loop](#first-loop) | Parameters of the naive stage |
 
 The stage objects in the asset are templates: each session creates its own copies, so stages can
 keep state. Without a selected asset (or if it can't be loaded) the pipeline runs with the
@@ -615,6 +760,8 @@ The pipeline adds these record types to the session log ([LOGGING.md](LOGGING.md
 | `signal` | When an event is reported, when a value changed | `name`, `kind` (`event` or `value`), `value` |
 | `feature_definitions` | At session start, after `pipeline_start` | `features`: every feature's definition |
 | `feature` | When a feature's value rounded to 0.01 changed | `name`, `value`, `raw` (before normalization, `null` without data) |
+| `need_definitions` | At session start, after `feature_definitions` | `estimator` (class), `threshold`, and the estimator's definitions (rule-based: `dimensions`) |
+| `need` | When a dimension's score rounded to 0.01, its reason or whether it is active changed | `need`, `score`, `active`, `reason` |
 | `state` | When a need's level changed | `need`, `score`, `level` (`Normal` or `Elevated`). A need starts as Normal without a record |
 | `context` | When the game activates or deactivates a context | `name`, `active`, `contexts` (all active contexts after the change) |
 | `objective` | When the game sets or clears the objective | `name`, `active`, `x`, `y`, `z` (m) |
@@ -655,7 +802,8 @@ values = sig[sig.kind == "value"].pivot_table(index="t", columns="name", values=
 
 Section *1 Telemetry* shows every value with its latest value, and every event with its latest
 value and how often it occurred, e.g. `Combat.DamageTaken  10.00 (2x)`. *2 Features* shows
-every feature as a bar, *3 Assistance Need* the Combat score as a bar plus the level, *5* the last
+every feature as a bar, *3 Assistance Need* every need dimension as a bar plus its level and
+strongest rule (or *inactive in this context*), *5* the last
 selected intervention and *6* the latest phase of each intervention, both with their time.
 *4 Context* shows every context the game reported, active or inactive, and since when.
 
@@ -671,15 +819,19 @@ selected intervention and *6* the latest phase of each intervention, both with t
 `ac.Debug 1` then shows the values in the overlay; the session log has the matching `signal`
 records.
 
-The first loop runs without fighting by reporting three hits:
-`ac.Pipeline.Event Combat.DamageTaken 1` three times within 5 s. `Companion.TriggerIntervention`
+The first loop runs without fighting. With this game's rules the Combat need needs the combat
+context and low health: `ac.Pipeline.Context Context.Combat 1`, `ac.Pipeline.Value Player.Health 0.4`,
+then `ac.Pipeline.Event Combat.DamageTaken 1` three times within 5 s (score 0.72). With the
+framework defaults the three hits alone are enough. `Companion.TriggerIntervention`
 starts the companion's reaction directly, without the pipeline (as `Intervention.Console`).
 
 Automation tests `AdaptiveCompanion.Pipeline.FixedRate` (update counts at different frame rates,
 hitches), `.Telemetry` (event and value hand-off), `.FeatureNeed` (the first loop's feature
 and threshold), `.Features.Aggregations` (every aggregation, missing data, minimum slope span),
 `.Features.Normalize` (range, clamp, invert), `.Features.Stage` (value sampling, windows, reset
-events, gates, ratio default, invalid definitions, trimming), `.Context` (set, change flag,
+events, gates, ratio default, invalid definitions, trimming), `.Need.Rules` (min, negation, weight,
+missing features, noisy-OR, labels), `.Need.Estimator` (context and objective gates, strongest rule,
+invalid dimensions), `.Need.Stage` (default estimator, levels, inactive dimensions, no estimator), `.Context` (set, change flag,
 repeated and no-op calls), `.Objective`, `.Selection` (selected once per elevation) and `.Config`
 (default stages):
 
