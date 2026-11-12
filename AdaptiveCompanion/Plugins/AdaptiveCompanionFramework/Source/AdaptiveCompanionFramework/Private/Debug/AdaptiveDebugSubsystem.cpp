@@ -20,8 +20,37 @@ static TAutoConsoleVariable<bool> CVarAdaptiveDebug(
 	false,
 	TEXT("Shows the Adaptive Companion debug overlay with the pipeline's live values (0 = off, 1 = on)"));
 
+static TAutoConsoleVariable<FString> CVarAdaptiveDebugSections(
+	TEXT("ac.Debug.Sections"),
+	TEXT(""),
+	TEXT("Sections the debug overlay shows, by name or number separated by spaces or commas, e.g. \"5 6\" or \"Need,Selection\". Empty = all"));
+
 namespace
 {
+	/** The sections ac.Debug.Sections lets through */
+	TBitArray<> VisibleSections()
+	{
+		const int32 Count = static_cast<int32>(EAdaptiveDebugSection::Count);
+		const FString Value = CVarAdaptiveDebugSections.GetValueOnGameThread().TrimStartAndEnd();
+		if (Value.IsEmpty())
+		{
+			return TBitArray<>(true, Count);
+		}
+
+		TBitArray<> Visible(false, Count);
+		TArray<FString> Parts;
+		Value.Replace(TEXT(","), TEXT(" ")).ParseIntoArrayWS(Parts);
+		for (const FString& Part : Parts)
+		{
+			EAdaptiveDebugSection Section;
+			if (UAdaptiveDebugSubsystem::ParseSection(Part, Section))
+			{
+				Visible[static_cast<int32>(Section)] = true;
+			}
+		}
+		return Visible;
+	}
+
 	const TCHAR* const SectionTitles[] = {
 		TEXT("1 Telemetry"),
 		TEXT("2 Features"),
@@ -192,11 +221,17 @@ void UAdaptiveDebugSubsystem::DrawOverlay(UCanvas* Canvas, APlayerController* Pl
 	const float LineHeight = TextHeight + 6.f * Scale;
 
 	const int32 SectionCount = static_cast<int32>(EAdaptiveDebugSection::Count);
+	const TBitArray<> Visible = VisibleSections();
 	int32 Rows = 1;
 	float NameColumn = NameWidth * Scale;
 	float TextColumn = 0.f;
 	for (int32 Index = 0; Index < SectionCount; ++Index)
 	{
+		if (!Visible[Index])
+		{
+			continue;
+		}
+
 		const TArray<FAdaptiveDebugEntry>& Entries = Data.GetEntries(static_cast<EAdaptiveDebugSection>(Index));
 
 		// header + entries, or one "no data" row
@@ -254,6 +289,11 @@ void UAdaptiveDebugSubsystem::DrawOverlay(UCanvas* Canvas, APlayerController* Pl
 
 	for (int32 Index = 0; Index < SectionCount; ++Index)
 	{
+		if (!Visible[Index])
+		{
+			continue;
+		}
+
 		const EAdaptiveDebugSection Section = static_cast<EAdaptiveDebugSection>(Index);
 		const TArray<FAdaptiveDebugEntry>& Entries = Data.GetEntries(Section);
 

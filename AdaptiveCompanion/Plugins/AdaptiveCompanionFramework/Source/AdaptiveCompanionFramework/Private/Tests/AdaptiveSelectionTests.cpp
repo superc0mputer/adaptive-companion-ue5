@@ -1,3 +1,4 @@
+#include "AdaptiveTestActionHandler.h"
 #include "Pipeline/AdaptiveBehaviorStage.h"
 #include "Pipeline/AdaptiveCompanionAction.h"
 #include "Pipeline/AdaptivePipelineFrame.h"
@@ -217,25 +218,52 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptiveSelectionRunningTest, "AdaptiveCompani
 
 bool FAdaptiveSelectionRunningTest::RunTest(const FString& Parameters)
 {
+	FGameActions Actions;
 	UAdaptiveBehaviorStage* Behavior = NewObject<UAdaptiveBehaviorStage>();
+	UAdaptiveTestActionHandler* Handler = NewObject<UAdaptiveTestActionHandler>();
 
-	FAdaptivePipelineFrame Frame;
-	Frame.Time = 10.0;
-	Frame.Intervention = TEXT("Action.ThreatCallout");
-	Behavior->Update(Frame);
+	auto Dispatch = [&](double Time)
+	{
+		FAdaptivePipelineFrame Frame;
+		Frame.Time = Time;
+		Frame.Intervention = TEXT("Action.ThreatCallout");
+		FAdaptiveActionState State = Available(Actions.Callout, 0.1);
+		State.Handler = Handler;
+		Frame.Actions = { State };
+		Behavior->Update(Frame);
+	};
+
+	Dispatch(10.0);
+	TestEqual(TEXT("The handler is asked to perform it"), Handler->Performed, TArray<FName>{ TEXT("Action.ThreatCallout") });
 	TestEqual(TEXT("Dispatched: running"), Behavior->UpdateRunning(11.0), FName(TEXT("Action.ThreatCallout")));
 
 	Behavior->ReportPhase(TEXT("Action.ThreatCallout"), TEXT("started"));
 	TestEqual(TEXT("Started: still running"), Behavior->UpdateRunning(12.0), FName(TEXT("Action.ThreatCallout")));
-	Behavior->ReportPhase(TEXT("Action.Other"), TEXT("ended"));
+	Behavior->ReportPhase(TEXT("Action.Other"), TEXT("completed"));
 	TestEqual(TEXT("Another intervention's end changes nothing"), Behavior->UpdateRunning(12.5), FName(TEXT("Action.ThreatCallout")));
-	Behavior->ReportPhase(TEXT("Action.ThreatCallout"), TEXT("ended"));
-	TestTrue(TEXT("Ended: not running"), Behavior->UpdateRunning(13.0).IsNone());
+	Behavior->ReportPhase(TEXT("Action.ThreatCallout"), TEXT("completed"));
+	TestTrue(TEXT("Completed: not running"), Behavior->UpdateRunning(13.0).IsNone());
 
-	Frame.Time = 20.0;
-	Behavior->Update(Frame);
+	for (const TCHAR* Final : { TEXT("failed"), TEXT("interrupted"), TEXT("ended") })
+	{
+		Dispatch(14.0);
+		Behavior->ReportPhase(TEXT("Action.ThreatCallout"), Final, TEXT("reason"));
+		TestTrue(FString::Printf(TEXT("%s ends it"), Final), Behavior->UpdateRunning(15.0).IsNone());
+	}
+
+	Dispatch(20.0);
 	TestEqual(TEXT("Still running before the timeout"), Behavior->UpdateRunning(49.0), FName(TEXT("Action.ThreatCallout")));
 	TestTrue(TEXT("Never reported to end: times out"), Behavior->UpdateRunning(50.0).IsNone());
+
+	Handler->bAccept = false;
+	Dispatch(60.0);
+	TestTrue(TEXT("Rejected by the handler: not running"), Behavior->GetRunning().IsNone());
+
+	FAdaptivePipelineFrame NoHandler;
+	NoHandler.Time = 70.0;
+	NoHandler.Intervention = TEXT("Action.Unknown");
+	Behavior->Update(NoHandler);
+	TestTrue(TEXT("No handler: rejected, not running"), Behavior->GetRunning().IsNone());
 
 	return true;
 }

@@ -15,7 +15,7 @@ API the game reports telemetry through. It is part of the framework plugin
 | 3 | Assistance Need | `UAdaptiveNeedStage` | Scores the need dimensions with a swappable estimator, rule-based by default ([Assistance need](#assistance-need)), smooths them and maps them to levels ([Need levels](#need-levels)) |
 | 4 | Context | `UAdaptiveContextStage` | Holds the contexts the game reports ([Gameplay context](#gameplay-context)), which gate the need dimensions, and checks which companion actions are possible ([Companion actions](#companion-actions)) |
 | 5 | Intervention Selection | `UAdaptiveSelectionStage` | Rates every available action with the exposé's utility and picks the best, or decides to do nothing ([Intervention selection](#intervention-selection)) |
-| 6 | Behavior | `UAdaptiveBehaviorStage` | Hands the intervention to the game, logs its phases and tracks it as running until it ends; more status handling in #19 |
+| 6 | Behavior | `UAdaptiveBehaviorStage` | Hands the selected action to its handler, logs every phase with its time, and tracks it as running until it ends ([Carrying out actions](#carrying-out-actions)) |
 
 Every update, `UAdaptivePipelineSubsystem` creates one `FAdaptivePipelineFrame` and passes it
 through the stages. Each stage reads what the stages before it wrote and adds its own output.
@@ -1063,26 +1063,56 @@ without recompiling.
 Results are added to `FAdaptivePipelineFrame`: `Features` (name → value), `Needs` (name →
 `FAdaptiveNeedState` with `Score`, `Level`, `bChanged`, `RawScore`, `bActive`, `Reason`) and `Intervention`.
 
-### Receiving interventions
+### Carrying out actions
 
-The framework doesn't know what an intervention does. The game listens to `OnIntervention`,
-carries it out, and reports its phases back so they end up in the session log:
+Since #19 the framework hands the selected action to the object that registered it, the same
+handler that answers `CheckAction` ([Companion actions](#companion-actions)):
 
-```cpp
-Pipeline->OnIntervention.AddUniqueDynamic(this, &AMyController::HandleIntervention);
-
-void AMyController::HandleIntervention(FName Intervention)
-{
-	// start the behavior, later:
-	Pipeline->ReportInterventionPhase(Intervention, TEXT("started"));
-	Pipeline->ReportInterventionPhase(Intervention, TEXT("ended"));
-}
+```
+5 Selection ─ Frame.Intervention ─▶ 6 Behavior: log dispatched ─▶ Handler.PerformAction(asset) ─▶ true: running
+                                                                                                └ false: rejected
+                                     OnIntervention.Broadcast(name)   (notification for anyone else, e.g. UI)
+game: ReportInterventionPhase(name, started) … (completed | failed + reason | interrupted)
 ```
 
-In this game `ACompanionAIController` listens and moves its StateTree into the Intervention
-branch, whose *Intervention Placeholder* task runs to the player, shows a text bark above the
-companion and reports `started` and `ended` ([ARCHITECTURE.md](ARCHITECTURE.md#companion-game-module)).
-If nothing listens, the Behavior stage prints a warning.
+```cpp
+bool AMyController::PerformAction_Implementation(const UAdaptiveCompanionAction* Action)
+{
+	// start the behavior; false if it can't
+	return StartBehavior(Action->ActionName);
+}
+
+// later, from the behavior:
+Pipeline->ReportInterventionPhase(Name, AdaptiveInterventionPhase::Started);
+Pipeline->ReportInterventionPhase(Name, AdaptiveInterventionPhase::Failed, TEXT("didn't reach the player in time"));
+```
+
+| Phase | Reported by | |
+|---|---|---|
+| `selected` | Selection | with need, level, utility |
+| `dispatched` | Behavior | handed to the handler |
+| `rejected` | Behavior | the handler returned false, or there is none |
+| `started` | game | the companion began |
+| `completed` | game | finished as intended |
+| `failed` | game | couldn't finish; `detail` says why |
+| `interrupted` | game | left before it finished, e.g. another event or the companion lost its pawn |
+| `timed_out` | Behavior | the game reported no end within *Max Intervention Duration* (30 s) |
+
+The phases are constants in `AdaptiveInterventionPhase`. The final ones (`completed`, `failed`,
+`interrupted`, `rejected`, `timed_out`, and `ended` from before #19) end the running intervention,
+so Selection can pick the next one, and are logged with `duration`, the seconds since dispatch.
+Every phase is logged with its timestamp and shown in section *6 Behavior*, e.g.
+`completed at 33.1 s, after 2.3 s` or `failed at 20.0 s: the companion has no state for this action`.
+
+**Why the handler and not `OnIntervention`.** With a broadcast, every listener would have to check
+whether the action is its own, and the framework couldn't tell "nobody carried it out" from "it
+started". Calling the registering handler gives one owner per action, the same one that said it
+was possible, and a refusal that ends up in the log. The broadcast remains for observers.
+
+**In this game** `ACompanionAIController::PerformAction` stores the action's name and sends the
+StateTree event that enters the Intervention branch, which picks the action's own state
+([ARCHITECTURE.md](ARCHITECTURE.md#statetree-layout)). It returns false while the companion has no
+pawn or no running StateTree.
 
 ## Update rate
 
@@ -1136,7 +1166,7 @@ The pipeline adds these record types to the session log ([LOGGING.md](LOGGING.md
 | `action_availability` | When an action's availability or reason changed | `name`, `available`, `reason`, `cost`, `suitability` |
 | `action_unregistered` | When an action is removed | `name`, `reason` (`unregistered` or `handler destroyed`) |
 | `selection` | When an action is selected, and when "do nothing" or its reason changes | `decision` (action or `none`), `reason`, `candidates` (per action: `utility`, `need` and the terms, or `excluded`) |
-| `intervention` | At every phase of an intervention | `name`, `phase`; `selected` adds `need`, `score`, `level` and `utility`, `dispatched` adds `receivers` (number of listeners); `timed_out` when the game never reported its end |
+| `intervention` | At every phase of an intervention | `name`, `phase`; `selected` adds `need`, `score`, `level` and `utility`, final phases add `duration` (s since dispatch), `failed` and `rejected` add `detail` ([Carrying out actions](#carrying-out-actions)) |
 
 The phases are `selected` (Selection), `dispatched` (Behavior, right before `OnIntervention`) and
 whatever the game reports; the companion reports `started` and `ended`.
@@ -1176,7 +1206,8 @@ value and how often it occurred, e.g. `Combat.DamageTaken  10.00 (2x)`. *2 Featu
 every feature as a bar, *3 Assistance Need* every need dimension's smoothed score as a bar plus its
 level, raw score and strongest rule (or *inactive in this context*), *5* the decision with its
 reason, every action's utility and terms or why it is no candidate, and the last selected action,
-and *6* the latest phase of each intervention with its time.
+and *6* the latest phase of each intervention with its time, the duration for final phases and the
+reason for failures. `ac.Debug.Sections 3 5 6` shows only some sections, e.g. for screenshots.
 *4 Context* shows every context the game reported, active or inactive, and since when, and every
 registered companion action with its availability.
 
@@ -1196,8 +1227,9 @@ The Combat need can be raised without fighting: `ac.Pipeline.Context Context.Com
 `ac.Pipeline.Value Player.Health 0.4`, then `ac.Pipeline.Event Combat.DamageTaken 1` three times
 within 5 s (raw score 0.72). An intervention is only selected if an action is available for it,
 and drawing aggro needs a real enemy near the player, so this only triggers the companion in the
-combat level. `Companion.TriggerIntervention`
-starts the companion's reaction directly, without the pipeline (as `Intervention.Console`).
+combat level. `Companion.TriggerIntervention [Action]`
+starts an action's state directly, without the pipeline (without a name: the companion's first
+action; an unknown name ends in *UnknownAction* and is reported as failed).
 
 Automation tests `AdaptiveCompanion.Pipeline.FixedRate` (update counts at different frame rates,
 hitches), `.Telemetry` (event and value hand-off), `.FeatureNeed` (the first loop's feature,
@@ -1213,7 +1245,8 @@ estimator, smoothing, inactive dimensions, no estimator), `.Actions.Definition` 
 destroyed handler), `.Actions.Availability` (context first, the game's answer, reason, cost),
 `.Context` (set, change flag,
 repeated and no-op calls), `.Objective`, `.Selection.Utility`, `.Selection.Nothing`, `.Selection.Repetition`,
-`.Selection.Running` (see [Intervention selection](#intervention-selection)) and `.Config`
+`.Selection.Running` (handler called, final phases, timeout, rejected; see
+[Intervention selection](#intervention-selection)) and `.Config`
 (default stages):
 
 ```bash

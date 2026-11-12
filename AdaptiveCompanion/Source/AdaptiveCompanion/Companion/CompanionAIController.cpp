@@ -27,10 +27,6 @@ void ACompanionAIController::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(this))
-	{
-		Pipeline->OnIntervention.AddUniqueDynamic(this, &ACompanionAIController::HandlePipelineIntervention);
-	}
 }
 
 void ACompanionAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -38,7 +34,6 @@ void ACompanionAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	// the pipeline outlives this controller (it belongs to the game instance)
 	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(this))
 	{
-		Pipeline->OnIntervention.RemoveDynamic(this, &ACompanionAIController::HandlePipelineIntervention);
 		Pipeline->UnregisterActions(this);
 	}
 
@@ -82,11 +77,22 @@ void ACompanionAIController::SendCompanionEvent(FGameplayTag EventTag)
 	StateTreeAI->SendStateTreeEvent(EventTag);
 }
 
-void ACompanionAIController::StartIntervention(FName Intervention)
+bool ACompanionAIController::StartIntervention(FName Intervention)
 {
-	// naive for now (#6): every intervention runs the same Intervention branch, which reads the name from here
+	if (!GetPawn() || !StateTreeAI->IsRunning())
+	{
+		return false;
+	}
+
+	// the Intervention branch picks its child state by this name (condition Is Current Intervention)
 	CurrentIntervention = Intervention;
 	SendCompanionEvent(CompanionTags::Event_Intervention);
+	return true;
+}
+
+bool ACompanionAIController::PerformAction_Implementation(const UAdaptiveCompanionAction* Action)
+{
+	return Action && StartIntervention(Action->ActionName);
 }
 
 FAdaptiveActionCheck ACompanionAIController::CheckAction_Implementation(const UAdaptiveCompanionAction* Action)
@@ -201,20 +207,21 @@ FAdaptiveActionCheck ACompanionAIController::CheckDrawAggro() const
 	return Check;
 }
 
-void ACompanionAIController::HandlePipelineIntervention(FName Intervention)
-{
-	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion received intervention '%s' from the pipeline."), *Intervention.ToString());
-	StartIntervention(Intervention);
-}
 
 // Tests the Intervention branch without going through the pipeline
-static FAutoConsoleCommandWithWorld GCompanionTriggerInterventionCommand(
+static FAutoConsoleCommandWithWorldAndArgs GCompanionTriggerInterventionCommand(
 	TEXT("Companion.TriggerIntervention"),
-	TEXT("Starts the intervention Intervention.Console on every companion, bypassing the pipeline."),
-	FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+	TEXT("Companion.TriggerIntervention [Action]: starts an action's state on every companion, bypassing the pipeline. Without a name: the companion's first action."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 	{
 		for (TActorIterator<ACompanionAIController> It(World); It; ++It)
 		{
-			It->StartIntervention(TEXT("Intervention.Console"));
+			FName Action = Args.Num() > 0 ? FName(*Args[0]) : NAME_None;
+			if (Action.IsNone())
+			{
+				const ACompanionCharacter* Companion = It->GetPawn<ACompanionCharacter>();
+				Action = Companion && !Companion->Actions.IsEmpty() && Companion->Actions[0] ? Companion->Actions[0]->ActionName : FName(TEXT("Action.Console"));
+			}
+			It->StartIntervention(Action);
 		}
 	}));
