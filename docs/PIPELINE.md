@@ -14,8 +14,8 @@ API the game reports telemetry through. It is part of the framework plugin
 | 2 | Features | `UAdaptiveFeatureStage` | Aggregates signals over time windows into features in [0, 1], defined in the config asset ([Features](#features)) |
 | 3 | Assistance Need | `UAdaptiveNeedStage` | Scores the need dimensions with a swappable estimator, rule-based by default ([Assistance need](#assistance-need)), smooths them and maps them to levels ([Need levels](#need-levels)) |
 | 4 | Context | `UAdaptiveContextStage` | Holds the contexts the game reports ([Gameplay context](#gameplay-context)), which gate the need dimensions, and checks which companion actions are possible ([Companion actions](#companion-actions)) |
-| 5 | Intervention Selection | `UAdaptiveSelectionStage` | Naive: one fixed intervention, utility selection in #18 |
-| 6 | Behavior | `UAdaptiveBehaviorStage` | Hands the intervention to the game and logs its phases, status tracking in #19 |
+| 5 | Intervention Selection | `UAdaptiveSelectionStage` | Rates every available action with the exposé's utility and picks the best, or decides to do nothing ([Intervention selection](#intervention-selection)) |
+| 6 | Behavior | `UAdaptiveBehaviorStage` | Hands the intervention to the game, logs its phases and tracks it as running until it ends; more status handling in #19 |
 
 Every update, `UAdaptivePipelineSubsystem` creates one `FAdaptivePipelineFrame` and passes it
 through the stages. Each stage reads what the stages before it wrote and adds its own output.
@@ -903,6 +903,139 @@ action too often is the job of the cooldowns and the repetition penalty in #18.
 
 ![Section 4 Context in the maze (left) and in the arena (right)](images/companion-actions.png)
 
+## Intervention selection
+
+Stage 5 (#18) picks the best companion action for the current needs and context, or decides to do
+nothing. It rates every action with the utility from the exposé (§4.4) and selects the best one if
+it is good enough and nothing speaks against acting now.
+
+```
+Frame.Needs (levels, scores) ┐
+Frame.Actions (available,    ├─▶ candidates ─▶ U per candidate ─▶ best ≥ MinUtility and allowed now? ─▶ Frame.Intervention
+  cost, suitability)         ┘                                    otherwise "do nothing" + reason
+```
+
+### Definition
+
+For each action:
+
+```
+U = w_r·R + w_s·S − w_p·P − w_c·C − w_i·I·(1 − n)
+```
+
+| Term | | From |
+|---|---|---|
+| R | relevance to a need × that need's smoothed score; only Elevated or High needs count, and the best one is used | action's *Relevance* (#17), need score (#15) |
+| n | the score of that need | #15 |
+| S | suitability in the active contexts | #17 |
+| P | repetition: `0.5^(time since this action was last selected / Repetition Half Life)`, 0 if never | selection history |
+| C | current cost | the game (#17) |
+| I | intrusiveness, weighed by `1 − n`: the more urgent the need, the less it counts | action (#17) |
+
+An action is a **candidate** if it is available (#17), off its *Cooldown*, and relevant to an
+elevated need (R > 0). The best candidate is selected unless one of these holds, in this order;
+then the result is "do nothing" with that reason:
+
+1. no need is Elevated or High (*no elevated need*)
+2. the previous intervention is still running (*intervention still running*)
+3. the last intervention was less than *Min Time Between Interventions* ago (*too soon after the last intervention*)
+4. no action is a candidate (*no candidate action*)
+5. the best utility is below *Min Utility* (*best utility below 0.50*)
+
+Ties go to the action registered first. The decision is made every update.
+
+| Setting (*5 Intervention Selection*) | Default |
+|---|---|
+| Weights: Relevance, Suitability, Repetition, Cost, Intrusiveness | 1, 0.3, 0.5, 0.3, 0.4 |
+| Min Utility | 0.5 |
+| Min Time Between Interventions | 5 s |
+| Repetition Half Life | 30 s |
+| *6 Behavior* › Max Intervention Duration | 30 s |
+
+**Running interventions.** The Behavior stage marks the dispatched intervention as running until the
+game reports `ended`, `completed`, `failed` or `interrupted` for it, or for at most *Max
+Intervention Duration*, after which it logs `timed_out`. The pipeline passes it to the stages as
+`Frame.RunningIntervention`.
+
+`Frame.Evaluations` holds an `FAdaptiveActionEvaluation` per action (candidate or not, why not,
+the need, every term and the utility); `Frame.SelectionReason` says why the result was chosen.
+
+### Decisions
+
+**The exposé's utility, with R tied to the need.** In the exposé, R is "relevance to the estimated
+need". Using the action's relevance alone would rate a navigation hint the same at need 0.5 and
+0.9, so R is relevance × the need's smoothed score. The levels (#15) decide *when* the companion
+may act (a need must be Elevated or High), the score decides *how strongly* an action is pulled.
+
+**Intrusiveness weighed by urgency.** The agency question is whether help takes over too much. A
+fixed intrusiveness penalty would either block drawing aggro altogether or make it as easy as a
+call-out. Weighing it with `1 − n` keeps intrusive help for when the player clearly struggles:
+at combat need 0.5 the intrusiveness of drawing aggro costs 0.12, at 0.9 only 0.02.
+
+**A sum with gates instead of a product.** The common objection to a weighted sum is that one high
+term can make up for one that should rule the action out. Here that can't happen: an action is
+only a candidate for a need it addresses (R > 0), and actions that don't fit the context are
+already unavailable (#17). With that, the sum keeps the exposé's formula and makes each term's
+contribution readable in the log, which a product would blur. Rejected: multiplying the terms,
+a fixed priority list (can't weigh need strength against intrusiveness), learning which help works
+(far too few interventions per session).
+
+**Do nothing as a decision.** "Do nothing" has its own threshold and is logged with its reason, so
+the log distinguishes "no need", "help still running", "too soon", "nothing fits" and "nothing
+good enough". This is what the evaluation needs to tell missed help from deliberate restraint.
+
+**Every update, not only on a level change.** The first loop only acted when a need became
+Elevated. That misses a need that persists (a player lost for half a minute gets one hint) and a
+second need while the first is still elevated. Deciding every update, with the cooldown, the
+frequency limit and the repetition penalty, lets the companion help again when the need lasts,
+but less and less with the same action.
+
+**Defaults.** With them, a navigation hint at navigation need 0.65 rates 0.85; the same hint 15 s
+later (when its cooldown ends) only 0.49, so while the need lasts it is repeated about every
+16–20 s. Drawing aggro for a threat need of 0.56, through its threat relevance 0.4, rates 0.28 and
+is never chosen over the call-out (0.80). Min utility 0.5 is about the utility of a fitting action
+for a need that has just become Elevated, minus a fresh repetition penalty. All are first values;
+#16 tunes them.
+
+### Logging and overlay
+
+- `selection`: whenever an action is selected, and when "do nothing" or its reason changes, with
+  `decision` (action or `none`), `reason` and `candidates`: per action its `utility`, `need` and
+  terms (`relevance`, `suitability`, `repetition`, `cost`, `intrusiveness`), or why it was
+  `excluded`.
+- `intervention` with phase `selected` now carries `need`, its `score` and `level`, and the
+  `utility`. A running intervention that times out gets the phase `timed_out`.
+- Section *5 Intervention Selection* shows the decision and its reason, every action's utility and
+  terms (`U 0.27 for Threat (R 0.44 S 1.00 P 0.78 C 0.10 I 0.20)`) or why it is no candidate
+  (`cooldown, 14 s left`), and the last selected action.
+- Until the real behaviors exist (#19–#22), every selected action runs the companion's placeholder
+  reaction; its bark shows the action's name.
+
+### Verification
+
+Automation tests `.Selection.Utility` (the worked examples above, the intrusiveness weighting),
+`.Selection.Nothing` (each reason for doing nothing), `.Selection.Repetition` (a need that stays
+elevated for 60 s: hint, cooldown, penalty, hint again at 15.7 s; the frequency limit between two
+actions) and `.Selection.Running` (running until the end is reported, other interventions'
+ends, timeout).
+
+Scripted `-game` runs as in #13–#17:
+
+- `Lvl_NavigationScenario`, 50 s: the navigation hint is selected when navigation becomes Elevated
+  (utility 0.68), again once its cooldown is over while navigation is High (0.66), and a third time
+  for disorientation while the player stands and searches (0.63). In between the log shows
+  *intervention still running*, *too soon after the last intervention* and *no candidate action*
+  (the hint in its cooldown).
+- `Lvl_CombatScenario`, 90 s: 6 interventions. The threat call-out when the enemy first gets behind
+  the player (0.73); drawing aggro right after two quick hits make combat Elevated (0.90, against
+  the call-out, which was unavailable); the call-out during drawing aggro's cooldown; drawing aggro
+  again after the respawn, when the next fight starts with the death in the 60 s window.
+
+The game time in these logs runs a little slower than the session time the pipeline uses (the
+`-game` runs don't reach their target frame rate), so cooldowns look shorter there.
+
+![Selection in the maze, the hint in its cooldown while it runs (left); in the arena, combat and threat Elevated, drawing aggro just selected and the call-out rated 0.27 because of its repetition penalty (right)](images/intervention-selection.png)
+
 ## First loop
 
 The first version of stages 2–6 is deliberately naive (#6): one signal, one score, one
@@ -917,12 +1050,14 @@ ACombatCharacter::TakeDamage ─ Combat.DamageTaken ─▶ Combat.DamageRecent �
 |---|---|---|
 | 2 Features | Sums the values of one event over a sliding window, divides by a fixed maximum, clamps to [0, 1]. Since #13 this is one entry of the general [Features](#features) stage | `Combat.DamageRecent`: `Combat.DamageTaken` → Sum, 5 s, 0–5 |
 | 3 Need | One dimension whose score is one feature; *Elevated* once its smoothed score reaches the threshold. Since #14 / #15 this is the default of the rule-based [estimator](#assistance-need) with the default [levels](#need-levels) | `Combat` = rule `Combat.DamageRecent`, Elevated from 0.5 (smoothed) |
-| 5 Selection | Selects one intervention in the update where the need leaves Normal (Elevated or High); again only after it was Normal | *Need Name* `Combat`, *Intervention Name* `Intervention.Combat.Placeholder` |
+| 5 Selection | Selected one fixed intervention whenever the need became Elevated. Replaced by the [utility selection](#intervention-selection) in #18, which only picks registered actions | |
 | 6 Behavior | Broadcasts the selected intervention on `OnIntervention` | |
 
 With the framework defaults, three hits within 5 s make the Combat need Elevated about 1.3 s later
 (raw 0.6, smoothed with a 0.5 s rise half-life). This game's
-rules (#14) make it Elevated already at the second hit while health is low, and only in combat. The parameters are on the stage objects in the config asset, so they can be tuned
+rules (#14) make it Elevated already at the second hit while health is low, and only in combat.
+Since #18 nothing is selected unless the game has registered an action for the need: in this game
+that is drawing aggro, which needs an enemy near the player. The parameters are on the stage objects in the config asset, so they can be tuned
 without recompiling.
 
 Results are added to `FAdaptivePipelineFrame`: `Features` (name → value), `Needs` (name →
@@ -975,7 +1110,8 @@ Companion Pipeline (`UAdaptivePipelineSettings`, saved to `DefaultGame.ini`).
 | Features › Features, Log Step | see [Features](#features) | The feature definitions, and the rounding step for logging |
 | Need › Estimator, Log Step | see [Assistance need](#assistance-need) | The estimator with its dimensions and rules, the rounding step for logging |
 | Need › Levels, Dimension Levels | see [Need levels](#need-levels) | Smoothing half-lives and level thresholds, for all dimensions and per dimension |
-| Selection › ... | see [First loop](#first-loop) | Parameters of the naive stage |
+| Selection › Weights, Min Utility, Min Time Between Interventions, Repetition Half Life | see [Intervention selection](#intervention-selection) | The utility's weights, the threshold for doing anything, the frequency limit, how fast the repetition penalty fades |
+| Behavior › Max Intervention Duration | 30 s | An intervention whose end the game doesn't report counts as finished after this time |
 
 The stage objects in the asset are templates: each session creates its own copies, so stages can
 keep state. Without a selected asset (or if it can't be loaded) the pipeline runs with the
@@ -999,7 +1135,8 @@ The pipeline adds these record types to the session log ([LOGGING.md](LOGGING.md
 | `action_registered` | When the game registers actions | `handler` (class), `actions` (every action's definition) |
 | `action_availability` | When an action's availability or reason changed | `name`, `available`, `reason`, `cost`, `suitability` |
 | `action_unregistered` | When an action is removed | `name`, `reason` (`unregistered` or `handler destroyed`) |
-| `intervention` | At every phase of an intervention | `name`, `phase`; `selected` adds `need` and `score`, `dispatched` adds `receivers` (number of listeners) |
+| `selection` | When an action is selected, and when "do nothing" or its reason changes | `decision` (action or `none`), `reason`, `candidates` (per action: `utility`, `need` and the terms, or `excluded`) |
+| `intervention` | At every phase of an intervention | `name`, `phase`; `selected` adds `need`, `score`, `level` and `utility`, `dispatched` adds `receivers` (number of listeners); `timed_out` when the game never reported its end |
 
 The phases are `selected` (Selection), `dispatched` (Behavior, right before `OnIntervention`) and
 whatever the game reports; the companion reports `started` and `ended`.
@@ -1037,8 +1174,9 @@ values = sig[sig.kind == "value"].pivot_table(index="t", columns="name", values=
 Section *1 Telemetry* shows every value with its latest value, and every event with its latest
 value and how often it occurred, e.g. `Combat.DamageTaken  10.00 (2x)`. *2 Features* shows
 every feature as a bar, *3 Assistance Need* every need dimension's smoothed score as a bar plus its
-level, raw score and strongest rule (or *inactive in this context*), *5* the last
-selected intervention and *6* the latest phase of each intervention, both with their time.
+level, raw score and strongest rule (or *inactive in this context*), *5* the decision with its
+reason, every action's utility and terms or why it is no candidate, and the last selected action,
+and *6* the latest phase of each intervention with its time.
 *4 Context* shows every context the game reported, active or inactive, and since when, and every
 registered companion action with its availability.
 
@@ -1054,10 +1192,11 @@ registered companion action with its availability.
 `ac.Debug 1` then shows the values in the overlay; the session log has the matching `signal`
 records.
 
-The first loop runs without fighting. With this game's rules the Combat need needs the combat
-context and low health: `ac.Pipeline.Context Context.Combat 1`, `ac.Pipeline.Value Player.Health 0.4`,
-then `ac.Pipeline.Event Combat.DamageTaken 1` three times within 5 s (score 0.72). With the
-framework defaults the three hits alone are enough. `Companion.TriggerIntervention`
+The Combat need can be raised without fighting: `ac.Pipeline.Context Context.Combat 1`,
+`ac.Pipeline.Value Player.Health 0.4`, then `ac.Pipeline.Event Combat.DamageTaken 1` three times
+within 5 s (raw score 0.72). An intervention is only selected if an action is available for it,
+and drawing aggro needs a real enemy near the player, so this only triggers the companion in the
+combat level. `Companion.TriggerIntervention`
 starts the companion's reaction directly, without the pipeline (as `Intervention.Console`).
 
 Automation tests `AdaptiveCompanion.Pipeline.FixedRate` (update counts at different frame rates,
@@ -1073,7 +1212,8 @@ estimator, smoothing, inactive dimensions, no estimator), `.Actions.Definition` 
 (invalid and duplicate actions, handler without the interface, re-registering, unregistering,
 destroyed handler), `.Actions.Availability` (context first, the game's answer, reason, cost),
 `.Context` (set, change flag,
-repeated and no-op calls), `.Objective`, `.Selection` (selected once per elevation) and `.Config`
+repeated and no-op calls), `.Objective`, `.Selection.Utility`, `.Selection.Nothing`, `.Selection.Repetition`,
+`.Selection.Running` (see [Intervention selection](#intervention-selection)) and `.Config`
 (default stages):
 
 ```bash

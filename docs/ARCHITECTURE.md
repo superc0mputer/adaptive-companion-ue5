@@ -61,7 +61,7 @@ Game-specific assets live in `Content/Companion/`, which is allow-listed in `.gi
 |---|---|
 | `UAdaptivePipelineSubsystem` | Game instance subsystem: runs the six stages in order at a fixed rate (default 10 Hz), takes the game's telemetry (`ReportEvent`, `ReportValue`) and gameplay context (`SetContext`) and hands selected interventions back (`OnIntervention`, `ReportInterventionPhase`) |
 | `UAdaptivePipelineStage` | Base class of the stages: `Initialize`, `Update(Frame)`, `Deinitialize` |
-| `UAdaptiveTelemetryStage`, `UAdaptiveFeatureStage`, `UAdaptiveNeedStage`, `UAdaptiveContextStage`, `UAdaptiveSelectionStage`, `UAdaptiveBehaviorStage` | The six stages. Features computes the features defined in the config asset; Need scores the need dimensions with its estimator, smooths them and maps them to levels with hysteresis; Selection is deliberately naive (one intervention) until #18; Context holds the contexts the game reports and runs before Need |
+| `UAdaptiveTelemetryStage`, `UAdaptiveFeatureStage`, `UAdaptiveNeedStage`, `UAdaptiveContextStage`, `UAdaptiveSelectionStage`, `UAdaptiveBehaviorStage` | The six stages. Features computes the features defined in the config asset; Need scores the need dimensions with its estimator, smooths them and maps them to levels with hysteresis; Selection rates the available actions with the exposé's utility and picks the best or nothing; Behavior hands it to the game and tracks it while it runs; Context holds the contexts the game reports and runs before Need |
 | `FAdaptivePipelineFrame` | Data passed through the stages in one update |
 | `FAdaptiveFeatureDefinition`, `AdaptiveFeatureMath` | One feature's signal, aggregation, window and normalization; the aggregations and normalization as plain functions |
 | `UAdaptiveCompanionAction`, `IAdaptiveCompanionActionHandler` | A companion action as a config asset (relevance per need, contexts, suitability, cost, intrusiveness, cooldown); the interface the game object that carries actions out implements (`CheckAction`) |
@@ -199,8 +199,9 @@ Root                       On Event Companion.Event.Intervention → Interventio
   interrupts Default from the Root transition. `ACompanionAIController` sends it whenever the
   pipeline selects an intervention, and remembers which one. For now every intervention runs the
   same *Intervention Placeholder* task: the companion runs to the player (750 cm/s, up to 6 s),
-  shows a text bark above its head ("Hang in there, I'm coming!", debug text, so not in Shipping)
-  and reports `started` / `ended` to the pipeline. Real behaviors per intervention come in #24.
+  shows a text bark above its head ("Hang in there, I'm coming!" and the selected action's name,
+  debug text, so not in Shipping) and reports `started` / `ended` to the pipeline. Real behaviors per
+  action come in #19–#22.
   `Companion.TriggerIntervention` starts it without the pipeline for testing.
 
 ### Spawning and navigation in the template levels
