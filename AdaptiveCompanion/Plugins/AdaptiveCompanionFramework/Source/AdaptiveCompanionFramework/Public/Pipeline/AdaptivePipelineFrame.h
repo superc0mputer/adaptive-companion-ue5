@@ -18,11 +18,17 @@ struct FAdaptiveNeedState
 	/** How much help the player needs in this dimension, in [0, 1] */
 	double Score = 0.0;
 
-	/** True while the score is above the stage's threshold */
+	/** True while the score is at or above the stage's threshold */
 	bool bElevated = false;
 
 	/** True only in the update where bElevated changed */
 	bool bChanged = false;
+
+	/** False while the dimension does not apply in the current context (score 0 then) */
+	bool bActive = true;
+
+	/** What contributes most to the score, e.g. the strongest rule. Empty if nothing does */
+	FString Reason;
 };
 
 /**
@@ -49,7 +55,7 @@ struct FAdaptivePipelineFrame
 	/** 2 Features: features in [0, 1] by name */
 	TMap<FName, double> Features;
 
-	/** 3 Need: state of every need dimension by name */
+	/** 3 Need: state of every need dimension by name. Reads Contexts and Objective, so Context runs before it */
 	TMap<FName, FAdaptiveNeedState> Needs;
 
 	/** 4 Context: contexts the game reported as active, e.g. "Context.Combat", in the order they became active */

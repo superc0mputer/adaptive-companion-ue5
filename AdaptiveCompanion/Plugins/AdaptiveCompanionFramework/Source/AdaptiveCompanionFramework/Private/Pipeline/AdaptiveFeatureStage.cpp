@@ -10,18 +10,6 @@ namespace
 {
 	/** A Slope needs samples spanning at least this share of its window, so a few samples right after a reset don't give a wild rate */
 	constexpr double MinSlopeCoverage = 0.5;
-
-	double RoundTo(double Value, double Step)
-	{
-		// for steps like 0.01 divide by the whole number 100 instead of multiplying by 0.01, so the
-		// result is the double closest to 0.83 and the log shows 0.83, not 0.8300000000000001
-		const double Inverse = FMath::RoundToDouble(1.0 / Step);
-		if (Inverse >= 1.0 && FMath::IsNearlyEqual(Inverse * Step, 1.0))
-		{
-			return FMath::RoundToDouble(Value * Inverse) / Inverse;
-		}
-		return FMath::RoundToDouble(Value / Step) * Step;
-	}
 }
 
 UAdaptiveFeatureStage::UAdaptiveFeatureStage()
@@ -238,7 +226,7 @@ void UAdaptiveFeatureStage::Update(FAdaptivePipelineFrame& Frame)
 
 		Frame.Features.Add(Definition.Name, Value);
 
-		const double Logged = RoundTo(Value, LogStep);
+		const double Logged = AdaptiveFeatureMath::RoundTo(Value, LogStep);
 		if (!State.LoggedValue.IsSet() || *State.LoggedValue != Logged)
 		{
 			State.LoggedValue = Logged;
@@ -290,7 +278,7 @@ void UAdaptiveFeatureStage::LogFeature(const FAdaptiveFeatureDefinition& Definit
 	Payload->SetNumberField(TEXT("value"), Value);
 	if (Raw.IsSet())
 	{
-		Payload->SetNumberField(TEXT("raw"), RoundTo(*Raw, 0.001));
+		Payload->SetNumberField(TEXT("raw"), AdaptiveFeatureMath::RoundTo(*Raw, 0.001));
 	}
 	else
 	{

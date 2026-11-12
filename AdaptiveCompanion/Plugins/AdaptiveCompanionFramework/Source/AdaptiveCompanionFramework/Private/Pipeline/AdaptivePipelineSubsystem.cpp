@@ -42,11 +42,12 @@ void UAdaptivePipelineSubsystem::Initialize(FSubsystemCollectionBase& Collection
 	StartSeconds = FPlatformTime::Seconds();
 	Config = GetDefault<UAdaptivePipelineSettings>()->LoadConfig();
 
-	// update order: stage 4 (context) only has to be ready before 5 (selection), so plain section order works
+	// update order: stage 4 (context) runs before 3 (need), because the need dimensions are gated
+	// by the active contexts; it only copies what the game reported, so it doesn't depend on 1-3
 	Telemetry = CreateStage(Config->Telemetry.Get());
 	CreateStage(Config->Features.Get());
-	CreateStage(Config->Need.Get());
 	Context = CreateStage(Config->Context.Get());
+	CreateStage(Config->Need.Get());
 	CreateStage(Config->Selection.Get());
 	Behavior = CreateStage(Config->Behavior.Get());
 
