@@ -50,11 +50,6 @@ void UAdaptivePipelineSubsystem::Initialize(FSubsystemCollectionBase& Collection
 	CreateStage(Config->Selection.Get());
 	Behavior = CreateStage(Config->Behavior.Get());
 
-	for (UAdaptivePipelineStage* Stage : Stages)
-	{
-		Stage->Initialize(*this);
-	}
-
 	Rate = FAdaptiveFixedRate(1.0 / GetUpdateRate());
 	TickerHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UAdaptivePipelineSubsystem::Tick));
 
@@ -72,6 +67,12 @@ void UAdaptivePipelineSubsystem::Initialize(FSubsystemCollectionBase& Collection
 		Payload->SetBoolField(TEXT("pause_with_game"), Config->bPauseWithGame);
 		Payload->SetArrayField(TEXT("stages"), StageClasses);
 		Log->LogRecord(AdaptiveLogRecordType::PipelineStart, Payload);
+	}
+
+	// after pipeline_start, so records the stages write while initializing (feature definitions) follow it
+	for (UAdaptivePipelineStage* Stage : Stages)
+	{
+		Stage->Initialize(*this);
 	}
 
 	UE_LOG(LogAdaptiveCompanionFramework, Display, TEXT("Pipeline running at %g Hz (config: %s)."), GetUpdateRate(), *GetNameSafe(Config));

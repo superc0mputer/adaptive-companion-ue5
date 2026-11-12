@@ -332,9 +332,9 @@ bool UAdaptiveDebugSubsystem::DemoTick(float DeltaTime)
 	SetNumber(Telemetry, TEXT("Player.Speed"), Wave(5.0, 1.0) * 600.0);
 	SetNumber(Telemetry, TEXT("Camera.YawRate"), Wave(3.0, 2.0) * 180.0);
 
-	SetBar(Features, TEXT("Combat.DamageRate"), Wave(7.0, -0.5));
-	SetBar(Features, TEXT("Nav.Backtracking"), Wave(11.0, 0.0));
-	SetBar(Features, TEXT("Camera.Spinning"), Wave(3.0, 2.0));
+	SetBar(Features, TEXT("Combat.DamageRecent"), Wave(7.0, -0.5));
+	SetBar(Features, TEXT("Nav.Revisits"), Wave(11.0, 0.0));
+	SetBar(Features, TEXT("Camera.LookingAround"), Wave(3.0, 2.0));
 
 	const double CombatNeed = Wave(9.0, 0.0);
 	SetBar(Need, TEXT("Need.Combat"), CombatNeed);
