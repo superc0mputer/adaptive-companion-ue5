@@ -12,7 +12,7 @@ API the game reports telemetry through. It is part of the framework plugin
 |---|---|---|---|
 | 1 | Telemetry | `UAdaptiveTelemetryStage` | Collects what the game reports, logs it, shows it in the overlay |
 | 2 | Features | `UAdaptiveFeatureStage` | Aggregates signals over time windows into features in [0, 1], defined in the config asset ([Features](#features)) |
-| 3 | Assistance Need | `UAdaptiveNeedStage` | Scores the need dimensions with a swappable estimator, rule-based by default ([Assistance need](#assistance-need)); levels are one threshold until #15 |
+| 3 | Assistance Need | `UAdaptiveNeedStage` | Scores the need dimensions with a swappable estimator, rule-based by default ([Assistance need](#assistance-need)), smooths them and maps them to levels ([Need levels](#need-levels)) |
 | 4 | Context | `UAdaptiveContextStage` | Holds the contexts the game reports ([Gameplay context](#gameplay-context)); gates the need dimensions, not used by Selection yet |
 | 5 | Intervention Selection | `UAdaptiveSelectionStage` | Naive: one fixed intervention, utility selection in #18 |
 | 6 | Behavior | `UAdaptiveBehaviorStage` | Hands the intervention to the game and logs its phases, status tracking in #19 |
@@ -566,9 +566,8 @@ without rules still drives the naive Selection stage.
   (`Nav.NoProgress & Nav.Misalignment & not Nav.StandingStill`); empty if no rule fires.
 - A dimension without a name, or with the name of an earlier one, is skipped with a warning.
 
-`Frame.Needs` holds an `FAdaptiveNeedState` per dimension: `Score`, `bActive`, `Reason`, and the
-level `bElevated` / `bChanged`. Levels are still the first loop's single *Threshold* (0.6) on the
-raw score; smoothing and proper levels are #15.
+`Frame.Needs` holds an `FAdaptiveNeedState` per dimension: the estimator's `RawScore`, `bActive`
+and `Reason`, plus the smoothed `Score` and `Level` from [Need levels](#need-levels).
 
 ### Decisions
 
@@ -595,7 +594,7 @@ several moderate ones add up, and the score stays in [0, 1] without renormalizin
 
 **Context gates.** A combat need outside combat, or a navigation need without an objective,
 means nothing, and some features keep values from before (e.g. `Combat.DeathRecent` for 60 s).
-Gating to 0 instead of freezing the last score lets the smoothing in #15 decay it. The Context
+Gating to 0 instead of freezing the last score lets the smoothing ([Need levels](#need-levels)) decay it. The Context
 stage therefore runs before the Need stage; it only copies what the game reported.
 
 **Interpretable and swappable.** Every score can be traced to the rule behind it, which the log
@@ -635,11 +634,11 @@ Set in `Content/Companion/DA_PipelineConfig`. The weights are first values; #16 
 
 ### Logging and overlay
 
-- At session start a `need_definitions` record lists the estimator class, the threshold and the
-  dimensions with their rules and gates.
-- A `need` record (`need`, `score`, `active`, `reason`) is written when a dimension's score rounded
-  to *Log Step* (0.01), its reason or whether it is active changed. `state` records still mark
-  level changes.
+- At session start a `need_definitions` record lists the estimator class, the dimensions with
+  their rules and gates, and the level settings.
+- A `need` record (`need`, `score`, `raw`, `active`, `reason`) is written when a dimension's score
+  rounded to *Log Step* (0.01), its reason or whether it is active changed. `state` records mark
+  level changes ([Need levels](#need-levels)).
 - The overlay shows every dimension as a bar in section *3 Assistance Need*, and below it
   `<dimension> why`: the level and the strongest rule, or *inactive in this context*.
 
@@ -647,8 +646,8 @@ In a 50 s navigation run the four dimensions wrote 298 `need` records (of 2493).
 
 ### Verification
 
-The same scripted `-game` runs as for the features (#13). `Lvl_NavigationScenario`, averaged per
-phase at 10 Hz:
+The same scripted `-game` runs as for the features (#13). `Lvl_NavigationScenario`, raw scores
+(before smoothing, which came later in #15) averaged per phase at 10 Hz:
 
 | Need | Straight to objectives | Backtracking | Standing, looking around |
 |---|---|---|---|
@@ -656,10 +655,10 @@ phase at 10 Hz:
 | Disorientation | 0.11 | 0.03 | **0.82** |
 | Combat, Threat | inactive | inactive | inactive |
 
-Navigation becomes Elevated 4 s into backtracking (`NoProgress & Misalignment & not
-StandingStill`, later `Revisits & not StandingStill`). When the player stops, disorientation
-becomes Elevated within 2 s and navigation drops back to Normal 3 s later, as the standing-still
-share fills its 10 s window; the 0.35 average is those first seconds. Disorientation while going
+Navigation reached the old single threshold (0.6) 4 s into backtracking (`NoProgress &
+Misalignment & not StandingStill`, later `Revisits & not StandingStill`). When the player stops,
+disorientation reached it within 2 s and navigation dropped below it 3 s later, as the
+standing-still share fills its 10 s window; the 0.35 average is those first seconds. Disorientation while going
 straight (up to 0.27) comes from the camera turning at corners and the player standing before the
 run starts.
 
@@ -667,12 +666,118 @@ run starts.
 attacks): navigation and disorientation turn inactive when combat starts. Threat is 0.13 while the
 enemy is in view (`EnemiesNear`) and 0.56 while it circles behind the player (`EnemiesUnseen &
 Proximity`). Combat stays 0 until the first hit, then 0.40 and 0.67 after the second
-(`HealthLow & DamageRecent`, Elevated, which selects the placeholder intervention), and falls to
+(`HealthLow & DamageRecent`, above the old threshold, which selected the placeholder intervention), and falls to
 0.20 (`HealthLow`) as the hits leave the 5 s window. When the enemy moves along the edge of the
 view, threat jumps between 0.13 and 0.74 several times within a second. That flicker is what the
-smoothing in #15 is for.
+smoothing ([Need levels](#need-levels)) is for.
 
 ![Disorientation while standing and looking around in the maze (left), combat need after the second hit (right)](images/need-estimation.png)
+
+## Need levels
+
+The estimator's scores react to every flicker of the features. Before anything acts on them, the
+Need stage (#15) smooths each dimension's raw score over time and maps it to a level, **Normal**,
+**Elevated** or **High**, so the state doesn't flicker. This happens in the stage, after the
+estimator, so it works the same for every estimator (rule-based, #46, #47).
+
+```
+raw score ─▶ moving average (rise / fall half-life) ─▶ smoothed score ─▶ enter / exit thresholds ─▶ level
+```
+
+### Definition
+
+*3 Assistance Need › Levels* holds the settings for every dimension; *Dimension Levels* overrides
+them for single dimensions by name.
+
+| Setting | Default | |
+|---|---|---|
+| Rise Half Life | 0.5 s | Time until the smoothed score has covered half the way up to a higher raw score. A raw score of 1 reaches the Elevated threshold (0.5) after exactly this time: the reaction time. 0 = no smoothing |
+| Fall Half Life | 3 s | The same toward a lower raw score |
+| Elevated Enter / Exit | 0.5 / 0.35 | Normal becomes Elevated at or above *Enter*; Elevated becomes Normal below *Exit* |
+| High Enter / Exit | 0.75 / 0.6 | Elevated becomes High at or above *Enter*; High becomes Elevated below *Exit* |
+
+- Each update the smoothed score moves toward the raw score by `1 − 0.5^(Δt / half-life)` of the
+  remaining distance (an exponential moving average), with the rise or fall half-life depending
+  on the direction.
+- A level can jump more than one step (Normal straight to High) when the score does.
+- Thresholds that contradict each other (an exit above its enter) are capped, so a misconfigured
+  asset can't make a level oscillate.
+- While a dimension is **inactive** (#14), its level is Normal at once, and its smoothed score
+  decays toward 0 at the fall rate.
+
+`FAdaptiveNeedState::Score` is the smoothed score; `RawScore` is the estimator's; `Level` and
+`bChanged` (only in the update where the level changed) are what later stages act on.
+
+### Decisions
+
+**Exponential moving average with half-lives.** The exposé's `A = αA + (1 − α)S`, but set by
+half-lives in seconds instead of α. A fixed α behaves differently at another update rate; a
+half-life gives the same curve at 10 Hz and at 60 Hz (tested), and it reads as a time: "a
+full-strength problem is Elevated after 0.5 s".
+
+**Rise faster than fall.** Help should come quickly when a problem appears, but not stop the moment
+the player is fine for a second; a fight has pauses between hits. With 0.5 s up and 3 s down, the
+combat need after two hits becomes Elevated about 0.6 s later than with the raw score, and holds
+for about 5 s after the last hit.
+
+**Hysteresis on top of smoothing.** Each alone isn't enough. Smoothing alone still crosses a single
+threshold back and forth when the score hovers around it. Thresholds alone can't stop a raw score
+that jumps across both: threat jumped between 0.13 and 0.74 when the enemy was on the edge of the
+view (#14). The band between enter and exit absorbs what the smoothing leaves.
+
+**Three levels.** Elevated is "help would be useful", High is "help is urgent". Selection (#18)
+can then pick stronger or more intrusive help only for High.
+
+**Inactive means Normal at once.** Combat help after the fight is over makes no sense, so the level
+doesn't wait for the score to decay. The score itself does decay, so re-entering combat shortly
+afterwards starts from where it was, not from 0.
+
+**Rejected:**
+
+- A minimum time in a level: the fall half-life plus the exit threshold already hold a level for
+  several seconds.
+- Median filters: they are blind to short real spikes such as a hit.
+- A Kalman filter: it needs a noise model we don't have.
+- A moving average over a window: the features are already windowed (#13), so a second window
+  would add a fixed delay to everything.
+
+The values were chosen by re-smoothing the raw scores logged in the #14 runs offline at 10 Hz:
+threat changed level 4–6 times per combat run with the old raw threshold, and once with these
+values. A fall half-life of 2 s let threat drop and re-enter within 2 s when the enemy briefly came
+into view. All are first values that the tuning pass (#16) adjusts.
+
+### Logging and overlay
+
+- `need_definitions` contains the level settings (`levels`) and overrides (`dimension_levels`).
+- The `need` record has the smoothed `score` and the `raw` score; it is written when either,
+  rounded to 0.01, its reason or whether it is active changed.
+- A `state` record is written when a level changes: `need`, `level`, `previous`, `score`, `raw`,
+  `active`, `reason`.
+- The overlay bar shows the smoothed score; `<dimension> why` shows the level, the raw score and
+  the strongest rule, e.g. `Elevated, raw 0.65, Threat.EnemiesUnseen & Threat.Proximity`.
+
+### Verification
+
+Automation tests: `.Need.Flicker` feeds the alternating 0.13 / 0.74 from #14 for 10 s, and noise of
+±0.15 around the Elevated threshold for 30 s; each changes the level at most once, while the same
+input without smoothing and hysteresis changes it in nearly every update. `.Need.Reaction` checks
+that a lasting raw score of 1 becomes Elevated after one rise half-life and High after two, for
+0.5 s and 2 s.
+
+Scripted `-game` runs as in #13 and #14, level changes from the `state` records:
+
+| Run | Raw score ≥ 0.6 (before) | Level changes (now) |
+|---|---|---|
+| Combat, 90 s, threat | 7 | 3: Elevated when the enemy first gets behind the player (8.7 s), Normal when the player dies and leaves combat, Elevated again in the next fight |
+| Combat, 90 s, combat | 5 | 4: Elevated after the third hit, High at the death, Normal on leaving combat, Elevated when the next fight starts with the death still in the 60 s window |
+| Navigation, 50 s, navigation | 2 | 4: Elevated 4 s into backtracking, High, Elevated, Normal 10 s after the player stopped |
+| Navigation, 50 s, disorientation | 1 | 2: Elevated, then High while standing and looking around |
+
+Navigation now stays Elevated for a while after the player stops, while disorientation rises: the
+two overlap for about 6 s. Which one gets help is up to Selection (#18). In the combat run every
+placeholder intervention was selected once per Normal → Elevated change (2 in 90 s).
+
+![Smoothed need scores with level, raw score and reason: disorientation High while standing in the maze (left), combat rising behind its raw score while threat holds Elevated (right)](images/stable-state.png)
 
 ## First loop
 
@@ -681,22 +786,23 @@ threshold, one reaction, so the whole chain works end to end before each stage i
 
 ```
 ACombatCharacter::TakeDamage ─ Combat.DamageTaken ─▶ Combat.DamageRecent ─▶ Combat Elevated ─▶ Intervention.Combat.Placeholder ─▶ companion runs to the player + bark
-                               (event, damage)       (sum over 5 s / 5)    (score ≥ 0.6)      (when Combat becomes Elevated)
+                               (event, damage)       (sum over 5 s / 5)    (smoothed ≥ 0.5)   (when Combat becomes Elevated)
 ```
 
 | Stage | What it does now | Parameters (defaults) |
 |---|---|---|
 | 2 Features | Sums the values of one event over a sliding window, divides by a fixed maximum, clamps to [0, 1]. Since #13 this is one entry of the general [Features](#features) stage | `Combat.DamageRecent`: `Combat.DamageTaken` → Sum, 5 s, 0–5 |
-| 3 Need | One dimension whose score is one feature; *Elevated* at or above the threshold, otherwise *Normal*. Since #14 this is the default of the rule-based [estimator](#assistance-need) | `Combat` = rule `Combat.DamageRecent`, *Threshold* 0.6 |
-| 5 Selection | Selects one intervention in the update where the need becomes Elevated; again only after it was Normal | *Need Name* `Combat`, *Intervention Name* `Intervention.Combat.Placeholder` |
+| 3 Need | One dimension whose score is one feature; *Elevated* once its smoothed score reaches the threshold. Since #14 / #15 this is the default of the rule-based [estimator](#assistance-need) with the default [levels](#need-levels) | `Combat` = rule `Combat.DamageRecent`, Elevated from 0.5 (smoothed) |
+| 5 Selection | Selects one intervention in the update where the need leaves Normal (Elevated or High); again only after it was Normal | *Need Name* `Combat`, *Intervention Name* `Intervention.Combat.Placeholder` |
 | 6 Behavior | Broadcasts the selected intervention on `OnIntervention` | |
 
-With the framework defaults, three hits within 5 s make the Combat need Elevated. This game's
+With the framework defaults, three hits within 5 s make the Combat need Elevated about 1.3 s later
+(raw 0.6, smoothed with a 0.5 s rise half-life). This game's
 rules (#14) make it Elevated already at the second hit while health is low, and only in combat. The parameters are on the stage objects in the config asset, so they can be tuned
 without recompiling.
 
 Results are added to `FAdaptivePipelineFrame`: `Features` (name → value), `Needs` (name →
-`FAdaptiveNeedState` with `Score`, `bActive`, `Reason`, `bElevated`, `bChanged`) and `Intervention`.
+`FAdaptiveNeedState` with `Score`, `Level`, `bChanged`, `RawScore`, `bActive`, `Reason`) and `Intervention`.
 
 ### Receiving interventions
 
@@ -743,7 +849,8 @@ Companion Pipeline (`UAdaptivePipelineSettings`, saved to `DefaultGame.ini`).
 | Stages › 1 Telemetry … 6 Behavior | The stage's base class | Which class runs each stage, with its parameters. An empty slot uses the base class |
 | Telemetry › Log Every Update | false | Log every value at every update instead of only on change |
 | Features › Features, Log Step | see [Features](#features) | The feature definitions, and the rounding step for logging |
-| Need › Estimator, Threshold, Log Step | see [Assistance need](#assistance-need) | The estimator with its dimensions and rules, the level threshold, the rounding step for logging |
+| Need › Estimator, Log Step | see [Assistance need](#assistance-need) | The estimator with its dimensions and rules, the rounding step for logging |
+| Need › Levels, Dimension Levels | see [Need levels](#need-levels) | Smoothing half-lives and level thresholds, for all dimensions and per dimension |
 | Selection › ... | see [First loop](#first-loop) | Parameters of the naive stage |
 
 The stage objects in the asset are templates: each session creates its own copies, so stages can
@@ -760,9 +867,9 @@ The pipeline adds these record types to the session log ([LOGGING.md](LOGGING.md
 | `signal` | When an event is reported, when a value changed | `name`, `kind` (`event` or `value`), `value` |
 | `feature_definitions` | At session start, after `pipeline_start` | `features`: every feature's definition |
 | `feature` | When a feature's value rounded to 0.01 changed | `name`, `value`, `raw` (before normalization, `null` without data) |
-| `need_definitions` | At session start, after `feature_definitions` | `estimator` (class), `threshold`, and the estimator's definitions (rule-based: `dimensions`) |
-| `need` | When a dimension's score rounded to 0.01, its reason or whether it is active changed | `need`, `score`, `active`, `reason` |
-| `state` | When a need's level changed | `need`, `score`, `level` (`Normal` or `Elevated`). A need starts as Normal without a record |
+| `need_definitions` | At session start, after `feature_definitions` | `estimator` (class), `levels`, `dimension_levels`, and the estimator's definitions (rule-based: `dimensions`) |
+| `need` | When a dimension's smoothed or raw score rounded to 0.01, its reason or whether it is active changed | `need`, `score` (smoothed), `raw`, `active`, `reason` |
+| `state` | When a need's level changed | `need`, `level` (`Normal`, `Elevated` or `High`), `previous`, `score`, `raw`, `active`, `reason`. A need starts as Normal without a record |
 | `context` | When the game activates or deactivates a context | `name`, `active`, `contexts` (all active contexts after the change) |
 | `objective` | When the game sets or clears the objective | `name`, `active`, `x`, `y`, `z` (m) |
 | `intervention` | At every phase of an intervention | `name`, `phase`; `selected` adds `need` and `score`, `dispatched` adds `receivers` (number of listeners) |
@@ -780,7 +887,7 @@ One pass through the loop, from a `-game` run of `Lvl_Combat` (payloads shortene
 ```json
 {"t":7.135,"type":"signal","payload":{"name":"Combat.DamageTaken","kind":"event","value":1}}   (3x)
 {"t":7.251,"type":"feature","payload":{"name":"Combat.DamageRecent","value":0.6}}
-{"t":7.251,"type":"state","payload":{"need":"Combat","score":0.6,"level":"Elevated"}}
+{"t":7.251,"type":"state","payload":{"need":"Combat","score":0.6,"level":"Elevated"}}           (before #15; now ~1.3 s later, see Need levels)
 {"t":7.251,"type":"intervention","payload":{"name":"Intervention.Combat.Placeholder","phase":"selected", ...}}
 {"t":7.251,"type":"intervention","payload":{"name":"Intervention.Combat.Placeholder","phase":"dispatched","receivers":1}}
 {"t":7.255,"type":"intervention","payload":{"name":"Intervention.Combat.Placeholder","phase":"started"}}
@@ -802,8 +909,8 @@ values = sig[sig.kind == "value"].pivot_table(index="t", columns="name", values=
 
 Section *1 Telemetry* shows every value with its latest value, and every event with its latest
 value and how often it occurred, e.g. `Combat.DamageTaken  10.00 (2x)`. *2 Features* shows
-every feature as a bar, *3 Assistance Need* every need dimension as a bar plus its level and
-strongest rule (or *inactive in this context*), *5* the last
+every feature as a bar, *3 Assistance Need* every need dimension's smoothed score as a bar plus its
+level, raw score and strongest rule (or *inactive in this context*), *5* the last
 selected intervention and *6* the latest phase of each intervention, both with their time.
 *4 Context* shows every context the game reported, active or inactive, and since when.
 
@@ -826,12 +933,15 @@ framework defaults the three hits alone are enough. `Companion.TriggerInterventi
 starts the companion's reaction directly, without the pipeline (as `Intervention.Console`).
 
 Automation tests `AdaptiveCompanion.Pipeline.FixedRate` (update counts at different frame rates,
-hitches), `.Telemetry` (event and value hand-off), `.FeatureNeed` (the first loop's feature
-and threshold), `.Features.Aggregations` (every aggregation, missing data, minimum slope span),
+hitches), `.Telemetry` (event and value hand-off), `.FeatureNeed` (the first loop's feature,
+smoothing delay and level), `.Features.Aggregations` (every aggregation, missing data, minimum slope span),
 `.Features.Normalize` (range, clamp, invert), `.Features.Stage` (value sampling, windows, reset
 events, gates, ratio default, invalid definitions, trimming), `.Need.Rules` (min, negation, weight,
 missing features, noisy-OR, labels), `.Need.Estimator` (context and objective gates, strongest rule,
-invalid dimensions), `.Need.Stage` (default estimator, levels, inactive dimensions, no estimator), `.Context` (set, change flag,
+invalid dimensions), `.Need.Smoothing` (half-lives, update-rate independence), `.Need.Levels`
+(enter and exit thresholds, jumps, contradicting thresholds), `.Need.Flicker` (alternating and noisy
+input), `.Need.Reaction` (time to Elevated and High, per-dimension override), `.Need.Stage` (default
+estimator, smoothing, inactive dimensions, no estimator), `.Context` (set, change flag,
 repeated and no-op calls), `.Objective`, `.Selection` (selected once per elevation) and `.Config`
 (default stages):
 

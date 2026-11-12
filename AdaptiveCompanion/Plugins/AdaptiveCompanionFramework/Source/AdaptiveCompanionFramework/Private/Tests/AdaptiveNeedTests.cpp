@@ -127,55 +127,203 @@ bool FAdaptiveNeedEstimatorTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+namespace
+{
+	/** A Need stage whose single dimension "X" has the raw score of feature "X" */
+	UAdaptiveNeedStage* MakeStage(FName RequiredContext = NAME_None)
+	{
+		UAdaptiveNeedStage* Stage = NewObject<UAdaptiveNeedStage>();
+		FAdaptiveNeedDimension Dimension;
+		Dimension.Name = TEXT("X");
+		Dimension.Rules.Add(MakeRule(1.0, { { TEXT("X"), false } }));
+		if (!RequiredContext.IsNone())
+		{
+			Dimension.RequiredContexts.Add(RequiredContext);
+		}
+		CastChecked<UAdaptiveRuleNeedEstimator>(Stage->Estimator)->Dimensions = { Dimension };
+		return Stage;
+	}
+
+	FAdaptiveNeedState StepStage(UAdaptiveNeedStage* Stage, double Time, double Raw, FName Context = NAME_None)
+	{
+		FAdaptivePipelineFrame Frame;
+		Frame.Time = Time;
+		Frame.Features.Add(TEXT("X"), Raw);
+		if (!Context.IsNone())
+		{
+			Frame.Contexts.Add(Context);
+		}
+		Stage->Update(Frame);
+		return Frame.Needs.FindRef(TEXT("X"));
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptiveNeedSmoothingTest, "AdaptiveCompanion.Pipeline.Need.Smoothing", NeedTestFlags)
+
+bool FAdaptiveNeedSmoothingTest::RunTest(const FString& Parameters)
+{
+	using namespace AdaptiveNeedMath;
+
+	TestEqual(TEXT("After one rise half-life: half way up"), Smooth(0.0, 1.0, 0.5, 0.5, 3.0), 0.5, 1e-9);
+	TestEqual(TEXT("After one fall half-life: half way down"), Smooth(1.0, 0.0, 3.0, 0.5, 3.0), 0.5, 1e-9);
+	TestEqual(TEXT("No time passed: unchanged"), Smooth(0.3, 1.0, 0.0, 0.5, 3.0), 0.3, 1e-9);
+	TestEqual(TEXT("Half-life 0: no smoothing"), Smooth(0.3, 0.9, 0.1, 0.0, 3.0), 0.9, 1e-9);
+	TestEqual(TEXT("At the target: stays"), Smooth(0.4, 0.4, 0.1, 0.5, 3.0), 0.4, 1e-9);
+
+	// the result depends on the time that passed, not on how many updates it was split into
+	double TenHz = 0.0;
+	double SixtyHz = 0.0;
+	for (int32 Index = 0; Index < 10; ++Index) { TenHz = Smooth(TenHz, 1.0, 0.1, 0.5, 3.0); }
+	for (int32 Index = 0; Index < 60; ++Index) { SixtyHz = Smooth(SixtyHz, 1.0, 1.0 / 60.0, 0.5, 3.0); }
+	TestEqual(TEXT("Same value after 1 s at 10 Hz and 60 Hz"), TenHz, SixtyHz, 1e-9);
+	TestEqual(TEXT("Two half-lives: three quarters"), TenHz, 0.75, 1e-9);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptiveNeedLevelsTest, "AdaptiveCompanion.Pipeline.Need.Levels", NeedTestFlags)
+
+bool FAdaptiveNeedLevelsTest::RunTest(const FString& Parameters)
+{
+	using namespace AdaptiveNeedMath;
+	using L = EAdaptiveNeedLevel;
+
+	const FAdaptiveNeedLevelSettings Settings;   // Elevated 0.5 / 0.35, High 0.75 / 0.6
+
+	TestEqual(TEXT("Below enter: Normal"), NextLevel(L::Normal, 0.49, Settings), L::Normal);
+	TestEqual(TEXT("At enter: Elevated"), NextLevel(L::Normal, 0.5, Settings), L::Elevated);
+	TestEqual(TEXT("Jump straight to High"), NextLevel(L::Normal, 0.8, Settings), L::High);
+	TestEqual(TEXT("Elevated holds between exit and enter"), NextLevel(L::Elevated, 0.4, Settings), L::Elevated);
+	TestEqual(TEXT("Elevated holds at its exit"), NextLevel(L::Elevated, 0.35, Settings), L::Elevated);
+	TestEqual(TEXT("Below exit: Normal"), NextLevel(L::Elevated, 0.34, Settings), L::Normal);
+	TestEqual(TEXT("Elevated to High"), NextLevel(L::Elevated, 0.75, Settings), L::High);
+	TestEqual(TEXT("High holds between exit and enter"), NextLevel(L::High, 0.65, Settings), L::High);
+	TestEqual(TEXT("High to Elevated"), NextLevel(L::High, 0.5, Settings), L::Elevated);
+	TestEqual(TEXT("High straight to Normal"), NextLevel(L::High, 0.1, Settings), L::Normal);
+
+	FAdaptiveNeedLevelSettings Broken;
+	Broken.ElevatedEnter = 0.5;
+	Broken.ElevatedExit = 0.7;   // above its enter
+	Broken.HighEnter = 0.3;      // below Elevated
+	Broken.HighExit = 0.9;
+	TestEqual(TEXT("Exit above enter is capped, no oscillation"), NextLevel(NextLevel(L::Normal, 0.6, Broken), 0.6, Broken), NextLevel(L::Normal, 0.6, Broken));
+	TestEqual(TEXT("High enter below Elevated is raised to it"), NextLevel(L::Normal, 0.4, Broken), L::Normal);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptiveNeedFlickerTest, "AdaptiveCompanion.Pipeline.Need.Flicker", NeedTestFlags)
+
+bool FAdaptiveNeedFlickerTest::RunTest(const FString& Parameters)
+{
+	// the threat score from the combat run in #14: an enemy on the edge of the view makes the raw
+	// score jump between 0.13 and 0.74 from one update to the next
+	UAdaptiveNeedStage* Stage = MakeStage();
+	int32 Changes = 0;
+	for (int32 Index = 0; Index < 100; ++Index)
+	{
+		Changes += StepStage(Stage, Index * 0.1, Index % 2 == 0 ? 0.13 : 0.74).bChanged ? 1 : 0;
+	}
+	TestTrue(FString::Printf(TEXT("Alternating 0.13 / 0.74 for 10 s changes the level at most once (%d)"), Changes), Changes <= 1);
+
+	// noise of ±0.15 around the Elevated threshold
+	Stage = MakeStage();
+	FRandomStream Random(42);
+	Changes = 0;
+	for (int32 Index = 0; Index < 300; ++Index)
+	{
+		Changes += StepStage(Stage, Index * 0.1, 0.5 + Random.FRandRange(-0.15, 0.15)).bChanged ? 1 : 0;
+	}
+	TestTrue(FString::Printf(TEXT("Noise around the threshold for 30 s changes the level at most once (%d)"), Changes), Changes <= 1);
+
+	// without smoothing and hysteresis the same input flickers, so the test does test something
+	Stage = MakeStage();
+	Stage->Levels.RiseHalfLife = 0.0;
+	Stage->Levels.FallHalfLife = 0.0;
+	Stage->Levels.ElevatedExit = Stage->Levels.ElevatedEnter;
+	Changes = 0;
+	for (int32 Index = 0; Index < 100; ++Index)
+	{
+		Changes += StepStage(Stage, Index * 0.1, Index % 2 == 0 ? 0.13 : 0.74).bChanged ? 1 : 0;
+	}
+	TestTrue(TEXT("Without both it flickers"), Changes > 50);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptiveNeedReactionTest, "AdaptiveCompanion.Pipeline.Need.Reaction", NeedTestFlags)
+
+bool FAdaptiveNeedReactionTest::RunTest(const FString& Parameters)
+{
+	// a lasting full-strength problem reaches Elevated after one rise half-life, whatever it is set to
+	for (const double HalfLife : { 0.5, 2.0 })
+	{
+		UAdaptiveNeedStage* Stage = MakeStage();
+		Stage->Levels.RiseHalfLife = HalfLife;
+		StepStage(Stage, 0.0, 0.0);
+
+		double ElevatedAt = -1.0;
+		double HighAt = -1.0;
+		for (int32 Index = 1; Index <= 100; ++Index)
+		{
+			const FAdaptiveNeedState State = StepStage(Stage, Index * 0.1, 1.0);
+			if (ElevatedAt < 0.0 && State.Level != EAdaptiveNeedLevel::Normal) { ElevatedAt = Index * 0.1; }
+			if (HighAt < 0.0 && State.Level == EAdaptiveNeedLevel::High) { HighAt = Index * 0.1; }
+		}
+		// exactly at the half-life, or one update later when rounding leaves it a hair below the threshold
+		TestTrue(FString::Printf(TEXT("Rise half-life %.1f s: Elevated after it (%.1f s)"), HalfLife, ElevatedAt), ElevatedAt > HalfLife - 0.01 && ElevatedAt < HalfLife + 0.11);
+		TestTrue(FString::Printf(TEXT("Rise half-life %.1f s: High after two (%.1f s)"), HalfLife, HighAt), HighAt > 2.0 * HalfLife - 0.01 && HighAt < 2.0 * HalfLife + 0.11);
+	}
+
+	// a per-dimension override wins over the stage-wide settings
+	UAdaptiveNeedStage* Stage = MakeStage();
+	FAdaptiveNeedLevelSettings Fast;
+	Fast.RiseHalfLife = 0.0;
+	Stage->DimensionLevels.Add(TEXT("X"), Fast);
+	StepStage(Stage, 0.0, 0.0);
+	TestEqual(TEXT("Override without smoothing: Elevated at once"), StepStage(Stage, 0.1, 0.6).Level, EAdaptiveNeedLevel::Elevated);
+
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptiveNeedStageTest, "AdaptiveCompanion.Pipeline.Need.Stage", NeedTestFlags)
 
 bool FAdaptiveNeedStageTest::RunTest(const FString& Parameters)
 {
-	UAdaptiveNeedStage* Stage = NewObject<UAdaptiveNeedStage>();
-	UAdaptiveRuleNeedEstimator* Estimator = Cast<UAdaptiveRuleNeedEstimator>(Stage->Estimator);
+	UAdaptiveNeedStage* Default = NewObject<UAdaptiveNeedStage>();
+	UAdaptiveRuleNeedEstimator* Estimator = Cast<UAdaptiveRuleNeedEstimator>(Default->Estimator);
 	if (!TestNotNull(TEXT("Rule-based estimator by default"), Estimator))
 	{
 		return false;
 	}
 	TestEqual(TEXT("Default: the first loop's Combat dimension"), Estimator->Dimensions.Num(), 1);
 
-	FAdaptiveNeedDimension Threat;
-	Threat.Name = TEXT("Threat");
-	Threat.Rules.Add(MakeRule(1.0, { { TEXT("Threat.Proximity"), false } }));
-	Threat.RequiredContexts.Add(TEXT("Context.Combat"));
-	Estimator->Dimensions = { Threat };
+	const FName Combat = TEXT("Context.Combat");
+	UAdaptiveNeedStage* Stage = MakeStage(Combat);
 
-	FAdaptivePipelineFrame Frame;
-	Frame.Features.Add(TEXT("Threat.Proximity"), 0.9);
-	Stage->Update(Frame);
-	const FAdaptiveNeedState* State = Frame.Needs.Find(TEXT("Threat"));
-	if (!TestNotNull(TEXT("Threat in the frame"), State))
+	FAdaptiveNeedState State = StepStage(Stage, 0.0, 0.9);
+	TestFalse(TEXT("Inactive outside its context"), State.bActive);
+	TestEqual(TEXT("Inactive: score 0"), State.Score, 0.0);
+
+	double Time = 0.1;
+	for (; Time < 4.0; Time += 0.1)
 	{
-		return false;
+		State = StepStage(Stage, Time, 0.9, Combat);
 	}
-	TestFalse(TEXT("Inactive outside its context"), State->bActive);
-	TestFalse(TEXT("An inactive dimension is never elevated"), State->bElevated);
+	TestTrue(TEXT("Active in its context"), State.bActive);
+	TestEqual(TEXT("Raw score is passed on"), State.RawScore, 0.9, 1e-9);
+	TestEqual(TEXT("Smoothed score close to the raw one after a while"), State.Score, 0.9, 0.01);
+	TestEqual(TEXT("0.9 is High"), State.Level, EAdaptiveNeedLevel::High);
+	TestEqual(TEXT("Reason is passed on"), State.Reason, FString(TEXT("X")));
 
-	Frame = FAdaptivePipelineFrame();
-	Frame.Features.Add(TEXT("Threat.Proximity"), 0.9);
-	Frame.Contexts.Add(TEXT("Context.Combat"));
-	Stage->Update(Frame);
-	State = Frame.Needs.Find(TEXT("Threat"));
-	TestTrue(TEXT("Active in combat"), State->bActive);
-	TestTrue(TEXT("0.9 is elevated"), State->bElevated);
-	TestTrue(TEXT("Change is flagged"), State->bChanged);
-	TestEqual(TEXT("Reason is passed on"), State->Reason, FString(TEXT("Threat.Proximity")));
-
-	// leaving combat drops the dimension to 0 and back to normal right away (smoothing is #15)
-	Frame = FAdaptivePipelineFrame();
-	Frame.Features.Add(TEXT("Threat.Proximity"), 0.9);
-	Stage->Update(Frame);
-	State = Frame.Needs.Find(TEXT("Threat"));
-	TestFalse(TEXT("Back to normal outside combat"), State->bElevated);
-	TestTrue(TEXT("Change back is flagged"), State->bChanged);
+	// leaving the context: Normal at once, but the score only decays
+	State = StepStage(Stage, Time, 0.9);
+	TestEqual(TEXT("Normal as soon as it is inactive"), State.Level, EAdaptiveNeedLevel::Normal);
+	TestTrue(TEXT("Change is flagged"), State.bChanged);
+	TestTrue(TEXT("The score decays instead of dropping"), State.Score > 0.8);
 
 	Stage->Estimator = nullptr;
-	Frame = FAdaptivePipelineFrame();
+	FAdaptivePipelineFrame Frame;
 	Stage->Update(Frame);
 	TestTrue(TEXT("Without an estimator there are no needs"), Frame.Needs.IsEmpty());
 

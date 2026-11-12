@@ -78,6 +78,11 @@ feature, and the rules are combined by noisy-OR. A need only counts in its gamep
 Rules, weights and contexts are in `DA_PipelineConfig`, and the estimator can be swapped (machine
 learning in #43). Details: [docs/PIPELINE.md](docs/PIPELINE.md#assistance-need).
 
+Each need is then smoothed over time (faster up than down) and mapped to a level, Normal, Elevated
+or High, with separate thresholds for entering and leaving each level. A score that hovers around
+a threshold or jumps back and forth no longer makes the level flicker, and a full-strength problem
+still becomes Elevated within 0.5 s. Details: [docs/PIPELINE.md](docs/PIPELINE.md#need-levels).
+
 For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
 where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
 written to the session log. `Lvl_NavigationScenario` is a maze with four objectives in a row,
