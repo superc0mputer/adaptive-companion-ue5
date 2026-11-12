@@ -136,6 +136,22 @@ bool UAdaptivePipelineSubsystem::IsContextActive(FName Name) const
 	return Context && Context->IsContextActive(Name);
 }
 
+void UAdaptivePipelineSubsystem::RegisterActions(UObject* Handler, const TArray<UAdaptiveCompanionAction*>& Actions)
+{
+	if (Context)
+	{
+		Context->RegisterActions(Handler, Actions);
+	}
+}
+
+void UAdaptivePipelineSubsystem::UnregisterActions(UObject* Handler)
+{
+	if (Context)
+	{
+		Context->UnregisterActions(Handler);
+	}
+}
+
 void UAdaptivePipelineSubsystem::SetObjective(FName Name, FVector Location)
 {
 	if (Context)

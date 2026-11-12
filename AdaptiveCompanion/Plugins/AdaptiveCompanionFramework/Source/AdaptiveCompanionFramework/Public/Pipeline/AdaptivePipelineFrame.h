@@ -35,6 +35,34 @@ struct FAdaptiveNeedState
 	FString Reason;
 };
 
+class UAdaptiveCompanionAction;
+
+/** One registered companion action in one update: whether it is possible now, and the context-dependent values the selection needs */
+struct FAdaptiveActionState
+{
+	FName Name;
+
+	const UAdaptiveCompanionAction* Action = nullptr;
+
+	/** The game object that carries it out */
+	UObject* Handler = nullptr;
+
+	/** False if a required context is missing or a blocked one is active */
+	bool bContextAllowed = false;
+
+	/** Contexts allow it and the game says it is possible */
+	bool bAvailable = false;
+
+	/** Why not, empty if available */
+	FString Reason;
+
+	/** Current cost, 0-1 (the game's, or the asset's base cost) */
+	double Cost = 0.0;
+
+	/** Suitability in the active contexts, 0-1 */
+	double Suitability = 1.0;
+};
+
 /**
  *  The data passed through the stages in one pipeline update. Every stage reads what the stages
  *  before it wrote and adds its own output. Stages add their fields here as they are implemented.
@@ -73,6 +101,9 @@ struct FAdaptivePipelineFrame
 
 	/** 4 Context: world location of Objective */
 	FVector ObjectiveLocation = FVector::ZeroVector;
+
+	/** 4 Context: every registered companion action, in the order they were registered */
+	TArray<FAdaptiveActionState> Actions;
 
 	/** 5 Selection: the intervention to start in this update, NAME_None for none */
 	FName Intervention;

@@ -57,6 +57,9 @@ NaN and infinity in a payload are written as `null`, so every line stays valid J
 | `state` | Need stage, when a need's level changed | `need`, `level` (`Normal` / `Elevated` / `High`), `previous`, `score`, `raw`, `active`, `reason` |
 | `context` | Context stage, whenever the game activates or deactivates a context | `name`, `active` (true / false), `contexts` (all active contexts after the change) |
 | `objective` | Context stage, whenever the game sets or clears the objective | `name`, `active` (false when cleared), `x`, `y`, `z` (m) |
+| `action_registered` | Context stage, when the game registers companion actions | `handler` (class), `actions`: every action's definition ([PIPELINE.md](PIPELINE.md#companion-actions)) |
+| `action_availability` | Context stage, when an action's availability or reason changed | `name`, `available`, `reason`, `cost`, `suitability` |
+| `action_unregistered` | Context stage, when an action is removed | `name`, `reason` (`unregistered` / `handler destroyed`) |
 | `intervention` | Selection and Behavior stages, and the game through `ReportInterventionPhase` | `name`, `phase` (`selected`, `dispatched`, `started`, `ended`), more fields per phase ([PIPELINE.md](PIPELINE.md)) |
 
 The type names are in `AdaptiveLogRecordTypes.h`. Games may log their own types; this game logs

@@ -72,6 +72,7 @@ void UCameraInputTelemetrySubsystem::UpdateTelemetry()
 	}
 
 	const int32 EnemiesOutOfView = CountEnemiesOutOfView(Controller, CameraLocation, CameraRotation, Camera->GetFOVAngle());
+	LastEnemiesOutOfView = EnemiesOutOfView;
 
 	Report(TurnRate, ObjectiveAngle, EnemiesOutOfView, IdleTime);
 }
