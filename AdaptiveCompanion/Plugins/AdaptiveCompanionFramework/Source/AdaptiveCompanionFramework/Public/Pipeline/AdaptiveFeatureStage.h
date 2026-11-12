@@ -2,14 +2,20 @@
 
 #include "CoreMinimal.h"
 #include "Pipeline/AdaptivePipelineStage.h"
+#include "Pipeline/AdaptiveFeatureTypes.h"
 #include "AdaptiveFeatureStage.generated.h"
 
 /**
- *  2 Feature extraction. Deliberately naive for now (#6): one feature, the sum of one event's
- *  values over a sliding window, divided by a fixed maximum and clamped to [0, 1].
- *  With the defaults: damage taken in the last 5 s, where 5 damage counts as 1.
+ *  2 Feature extraction: turns the raw telemetry into features in [0, 1], one per entry in
+ *  Features. Each feature aggregates one signal over a sliding time window (count, sum, ratio,
+ *  latest, mean, slope, fraction below/above a threshold) and maps the result linearly from a
+ *  configured [Min, Max] to [0, 1].
  *
- *  Replaced by windowed aggregations over all signals in #13.
+ *  Events are kept with the time they were reported; values are sampled once per update. Every
+ *  signal's samples are kept as long as the longest window that reads it needs them.
+ *
+ *  The default list is the single feature of the first loop (#6), damage taken in the last 5 s
+ *  where 5 counts as 1. A game sets its own list in the pipeline config asset.
  */
 UCLASS(meta = (DisplayName = "Feature Stage"))
 class ADAPTIVECOMPANIONFRAMEWORK_API UAdaptiveFeatureStage : public UAdaptivePipelineStage
@@ -18,29 +24,48 @@ class ADAPTIVECOMPANIONFRAMEWORK_API UAdaptiveFeatureStage : public UAdaptivePip
 
 public:
 
-	/** Event whose values are summed */
-	UPROPERTY(EditAnywhere, Category = "Feature")
-	FName EventName = TEXT("Combat.DamageTaken");
+	UAdaptiveFeatureStage();
 
-	/** Name of the resulting feature in Frame.Features */
-	UPROPERTY(EditAnywhere, Category = "Feature")
-	FName FeatureName = TEXT("Combat.DamageRecent");
+	/** The features to compute, in the order they are shown in the overlay */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feature", meta = (TitleProperty = "Name"))
+	TArray<FAdaptiveFeatureDefinition> Features;
 
-	/** Only events younger than this count */
-	UPROPERTY(EditAnywhere, Category = "Feature", meta = (ClampMin = "0.1", Units = "s"))
-	float Window = 5.f;
+	/** A feature is logged when its value, rounded to this step, changed. Keeps slowly drifting values from logging at every update */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Feature", meta = (ClampMin = "0.0001", ClampMax = "1"))
+	double LogStep = 0.01;
 
-	/** Sum that maps to 1 */
-	UPROPERTY(EditAnywhere, Category = "Feature", meta = (ClampMin = "0.001"))
-	float MaxValue = 5.f;
+	/** Logs the definitions, so every session log says which features it was computed with */
+	virtual void Initialize(UAdaptivePipelineSubsystem& InPipeline) override;
 
 	virtual void Update(FAdaptivePipelineFrame& Frame) override;
 
+	/** Raw (not normalized) value of a feature in the last update, unset if it had no data. For tests and the overlay */
+	TOptional<double> GetRawValue(FName FeatureName) const;
+
 protected:
 
-	/** Events of EventName within the window, oldest first */
-	TArray<FAdaptiveTelemetryEvent> WindowEvents;
+	struct FFeatureState
+	{
+		bool bValid = false;
 
-	/** Value of the feature when it was last logged, unset before the first update */
-	TOptional<double> LoggedValue;
+		/** Samples up to this time don't count (reset event, gate closed) */
+		double ResetTime = -UE_BIG_NUMBER;
+
+		TOptional<double> Raw;
+		TOptional<double> LoggedValue;
+	};
+
+	/** Checks the definitions and resets the per-feature state when the list changed */
+	void PrepareStates();
+
+	void LogFeature(const FAdaptiveFeatureDefinition& Definition, double Value, const TOptional<double>& Raw) const;
+
+	/** Samples per event name, oldest first */
+	TMap<FName, TArray<FAdaptiveFeatureSample>> EventSamples;
+
+	/** Samples per value name, one per update, oldest first */
+	TMap<FName, TArray<FAdaptiveFeatureSample>> ValueSamples;
+
+	/** Parallel to Features */
+	TArray<FFeatureState> States;
 };

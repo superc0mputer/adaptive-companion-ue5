@@ -21,6 +21,9 @@ namespace AdaptiveLogRecordType
 	/** The pipeline started: update rate, config asset and stage classes */
 	inline const FString PipelineStart = TEXT("pipeline_start");
 
+	/** The feature definitions the Features stage runs with */
+	inline const FString FeatureDefinitions = TEXT("feature_definitions");
+
 	/** Manual marker, e.g. from the console command ac.Log.Marker */
 	inline const FString Marker = TEXT("marker");
 
