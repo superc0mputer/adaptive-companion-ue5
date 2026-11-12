@@ -63,6 +63,28 @@ struct FAdaptiveActionState
 	double Suitability = 1.0;
 };
 
+/** How the selection rated one action in one update */
+struct FAdaptiveActionEvaluation
+{
+	FName Action;
+
+	/** False if it was ruled out; Excluded says why */
+	bool bCandidate = false;
+	FString Excluded;
+
+	/** The elevated need it helps most with, and that need's smoothed score (n) */
+	FName Need;
+	double NeedScore = 0.0;
+
+	/** The utility's terms (relevance × need, suitability, repetition, cost, intrusiveness) and the utility */
+	double Relevance = 0.0;
+	double Suitability = 0.0;
+	double Repetition = 0.0;
+	double Cost = 0.0;
+	double Intrusiveness = 0.0;
+	double Utility = 0.0;
+};
+
 /**
  *  The data passed through the stages in one pipeline update. Every stage reads what the stages
  *  before it wrote and adds its own output. Stages add their fields here as they are implemented.
@@ -107,6 +129,15 @@ struct FAdaptivePipelineFrame
 
 	/** 5 Selection: the intervention to start in this update, NAME_None for none */
 	FName Intervention;
+
+	/** 5 Selection: every registered action's evaluation, in the order of Actions */
+	TArray<FAdaptiveActionEvaluation> Evaluations;
+
+	/** 5 Selection: why Intervention was chosen, or why nothing was */
+	FString SelectionReason;
+
+	/** 6 Behavior, before the stages run: the intervention the game is still carrying out, NAME_None if none */
+	FName RunningIntervention;
 };
 
 /**
