@@ -126,6 +126,15 @@ The game reports how the player moves toward the current objective
 | `UNavigationTelemetrySubsystem` | World subsystem, runs in every game level. Reports `Nav.ObjectiveDistance`, `Nav.HeadingAlignment`, `Nav.Speed` at the check interval of `UGameplayContextSettings`, and `Nav.AreaRevisited` |
 | `UNavigationTelemetrySettings` | Project Settings > Game > Navigation Telemetry: cell size (5 m), minimum absence for a revisit (5 s), standing-still speed (0.5 m/s) |
 
+## Camera and input telemetry (game module)
+
+The game reports where the player looks and whether they give input
+([PIPELINE.md](PIPELINE.md#camera-and-input-telemetry)), from `Source/AdaptiveCompanion/Telemetry/`.
+
+| Class | Role |
+|---|---|
+| `UCameraInputTelemetrySubsystem` | World subsystem, runs in every game level. Reports `Camera.TurnRate`, `Camera.ObjectiveAngle`, `Combat.EnemiesOutOfView` and `Input.IdleTime` at the check interval of `UGameplayContextSettings`. Reads the player's camera manager (works with any pawn), the framework's current objective and Slate's last user interaction time |
+
 ## Test scenarios (game module)
 
 Repeatable situations for testing the framework ([SCENARIOS.md](SCENARIOS.md)). The code is in
