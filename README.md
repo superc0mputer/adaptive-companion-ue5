@@ -58,6 +58,10 @@ toward it, their speed, revisited areas and reached objectives, and tells the fr
 objective is current. Objectives are
 `NavigationObjective` actors placed in a level. Details: [docs/PIPELINE.md](docs/PIPELINE.md#navigation-telemetry).
 
+From the camera and input it reports how fast the player turns the camera, how far they look
+away from the objective, how many nearby enemies are out of view, and how long they have given
+no input. Details: [docs/PIPELINE.md](docs/PIPELINE.md#camera-and-input-telemetry).
+
 For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
 where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
 written to the session log. `Lvl_NavigationScenario` is a maze with four objectives in a row,
@@ -77,7 +81,7 @@ can get lost. Details: [docs/SCENARIOS.md](docs/SCENARIOS.md).
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Context/` | Decides which gameplay context the game reports |
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Navigation/` | Navigation objectives and which one is current |
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Scenario/` | Test scenarios that run in a level and log their phases |
-| `AdaptiveCompanion/Source/AdaptiveCompanion/Telemetry/` | Reports telemetry that doesn't belong to a single actor (enemies near the player, movement toward the objective) |
+| `AdaptiveCompanion/Source/AdaptiveCompanion/Telemetry/` | Reports telemetry that doesn't belong to a single actor (enemies near the player, movement toward the objective, camera and input) |
 | `AdaptiveCompanion/Content/Companion/` | Our own assets (`BP_Companion`, `ST_Companion`, `DA_PipelineConfig`), stored via Git LFS |
 | `AdaptiveCompanion/Content/Scenarios/` | Our own test levels (`Lvl_CombatScenario`, `Lvl_NavigationScenario`), stored via Git LFS |
 | `Scripts/` | Setup scripts, `rebuild_editor.sh` (quit the editor, build, reopen it) |

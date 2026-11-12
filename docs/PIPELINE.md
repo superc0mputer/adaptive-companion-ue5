@@ -65,7 +65,8 @@ From Blueprint: *Get Game Instance Subsystem (Adaptive Pipeline Subsystem)* → 
 
 Names use dots for grouping (`Combat.`, `Nav.`, `Camera.`, `Input.`). Which names exist is decided
 per signal group in #8–#10: combat in [Combat telemetry](#combat-telemetry), navigation in
-[Navigation telemetry](#navigation-telemetry).
+[Navigation telemetry](#navigation-telemetry), camera and input in
+[Camera and input telemetry](#camera-and-input-telemetry).
 
 ## Gameplay context
 
@@ -285,6 +286,89 @@ After objective 0 is reached at 10.05, the distance jumps to the path length to 
 To try it in PIE, place `NavigationObjective` actors in a level (Place Actors, search
 "Navigation Objective") and set their *Order*. The grey pillar marks an objective until it is
 reached.
+
+## Camera and input telemetry
+
+The signals the game reports about where the player looks and whether they give any input (#10).
+Raw like the others (°/s, °, count, s); features come in #13.
+
+| Signal | Kind | Reported when | Reported by |
+|---|---|---|---|
+| `Camera.TurnRate` | value (°/s) | Angle the camera's view direction turned since the last check, divided by the time between checks, rounded to 5 °/s; every 0.1 s | `UCameraInputTelemetrySubsystem` |
+| `Camera.ObjectiveAngle` | value (0–180°) | Horizontal angle between the camera's view direction and the direction from the camera to the current objective, rounded to 1°; every 0.1 s. 0 without an objective | `UCameraInputTelemetrySubsystem` |
+| `Combat.EnemiesOutOfView` | value (count) | Living enemies within the combat radius (15 m) whose center is outside the camera's view; every 0.1 s | `UCameraInputTelemetrySubsystem` |
+| `Input.IdleTime` | value (s) | Whole seconds since the last player input of any kind: keys, mouse buttons, mouse moves, wheel, gamepad beyond its dead zone; every 0.1 s | `UCameraInputTelemetrySubsystem` |
+
+**Why collect them at all:** without them, disorientation can only be inferred from the
+navigation signals, and those can't tell "lost" apart from "exploring on purpose". Camera
+behavior is an independent and cheap signal for it, and it also tells which threats the player
+can see. The choice is reasoned like #8 and #9; #38 checks it against sources.
+
+**Why these:** turn rate shows looking around, the typical behavior of a disoriented player.
+Objective angle shows whether the player even looks toward the goal, also while standing still,
+where `Nav.HeadingAlignment` is 0. Enemies out of view feed threat awareness (#21) directly
+("enemy behind you"). Idle time tells "standing still, thinking or away" apart from "pushing
+against a wall", which `Nav.Speed` alone can't.
+
+**Not collected:** move-input magnitude (mostly the same as `Nav.Speed`), per-keypress events and
+"erratic input" measures (they would flood the log, mashing already shows in
+`Combat.AttackStarted`, and whether they help is for #38).
+
+- **The camera, not the character:** all camera values come from the player's camera manager,
+  so they work with every pawn class (`ACombatCharacter` in the combat level, the default
+  third-person character in the navigation level) and describe what the player actually sees,
+  camera lag included. The objective is the one the game reported to the framework
+  ([Objective](#objective)), not a game class.
+- **View test without walls:** an enemy counts as in view if its center is inside the camera's
+  frustum (horizontal FOV, vertical from the viewport's aspect ratio). Walls aren't traced, so
+  an enemy behind a wall in front of the player is still "in view". "Nearby" is the same radius
+  and the same "living" rule as `Combat.EnemiesNearby`.
+- **Objective angle horizontal only:** looking up or down at a distant objective isn't looking
+  away from it. Measured from the camera, because that is where the screen shows it from.
+- **Idle time from Slate:** Slate already records the time of the last user interaction for
+  every kind of input, so no input binding knows about telemetry. Synthetic mouse moves don't
+  count. Whole seconds, because the value grows at every check: rounded to 0.1 s it would log 10
+  records per second while the player is idle; this way it logs one.
+- **Always reported, rounded:** like the other values all four are reported at every check and
+  reset to 0 when the level ends. Without a camera (very first frames) the camera values are 0.
+- **Turn rate in world time:** pausing doesn't count as turning slowly. Snapping the camera
+  (respawn, scripted turns) shows as one spike of several hundred °/s.
+
+The check interval and combat radius are the ones of Project Settings > Game > Gameplay Context;
+the subsystem has no settings of its own.
+
+From scripted `-game` runs that hold the camera still, turn it at 90 °/s, face the target, then
+face away from it (target: the first objective in `Lvl_NavigationScenario`, the WarmUp enemy in
+`Lvl_CombatScenario`):
+
+| Phase | Navigation level | Combat level |
+|---|---|---|
+| Still, 4 s | Turn rate 0, objective angle 23–25° | Turn rate 0 (after the camera lag settles) |
+| Turning at 90 °/s, 3 s | Turn rate 65–110 °/s, objective angle sweeping 3 → 178 → 117° | Turn rate 80–95 °/s; enemy out of view 0 → 1 → 0 as the camera passes it |
+| Facing the target, 3 s | Objective angle 0 | Enemy out of view 0 while the camera follows the circling enemy |
+| Facing away, 3 s | Objective angle 180 | Enemy out of view 1 |
+
+`Input.IdleTime` grows by 1 every second in both runs, since the script gives no real input. The
+turn rate scatters around 90 °/s because the 0.1 s check doesn't line up exactly with frames; in
+the combat level the camera's rotation lag ramps it up and down. Log excerpt from the combat
+level, turning away from the enemy (payloads shortened):
+
+```json
+{"t":21.64,"type":"signal","payload":{"name":"Camera.TurnRate","kind":"value","value":50}}
+{"t":21.76,"type":"signal","payload":{"name":"Camera.TurnRate","kind":"value","value":695}}
+{"t":21.76,"type":"signal","payload":{"name":"Combat.EnemiesOutOfView","kind":"value","value":1}}
+{"t":21.86,"type":"signal","payload":{"name":"Camera.TurnRate","kind":"value","value":545}}
+{"t":22.25,"type":"signal","payload":{"name":"Camera.TurnRate","kind":"value","value":5}}
+{"t":22.57,"type":"signal","payload":{"name":"Input.IdleTime","kind":"value","value":26}}
+{"t":22.77,"type":"signal","payload":{"name":"Camera.TurnRate","kind":"value","value":0}}
+```
+
+**Frame rate:** `-game` runs of `Lvl_CombatScenario` with vsync and frame cap off, frame times
+over 20 s, the subsystem disabled and enabled in turn: mean 25.0 ms off, 24.2 and 24.7 ms on,
+so no measurable difference. One check takes 9–13 µs on average (timed over 200 checks), at
+10 checks per second.
+
+![An enemy behind the player: Combat.EnemiesOutOfView is 1](images/camera-input-telemetry.png)
 
 ## First loop
 
