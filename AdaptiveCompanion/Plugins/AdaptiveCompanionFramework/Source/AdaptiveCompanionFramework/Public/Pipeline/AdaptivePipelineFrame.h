@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Pipeline/AdaptiveNeedTypes.h"
 
 /** A discrete occurrence reported by the game, e.g. "Combat.DamageTaken" with the damage as value */
 struct FAdaptiveTelemetryEvent
@@ -15,14 +16,17 @@ struct FAdaptiveTelemetryEvent
 /** One assistance-need dimension, e.g. "Combat" */
 struct FAdaptiveNeedState
 {
-	/** How much help the player needs in this dimension, in [0, 1] */
+	/** How much help the player needs in this dimension, in [0, 1], smoothed over time */
 	double Score = 0.0;
 
-	/** True while the score is at or above the stage's threshold */
-	bool bElevated = false;
+	/** Level of the smoothed score, with hysteresis. Normal while the dimension is inactive */
+	EAdaptiveNeedLevel Level = EAdaptiveNeedLevel::Normal;
 
-	/** True only in the update where bElevated changed */
+	/** True only in the update where Level changed */
 	bool bChanged = false;
+
+	/** The estimator's score in this update, before smoothing */
+	double RawScore = 0.0;
 
 	/** False while the dimension does not apply in the current context (score 0 then) */
 	bool bActive = true;

@@ -6,8 +6,8 @@
 
 /**
  *  5 Intervention selection. Deliberately naive for now (#6): one fixed intervention, selected
- *  whenever one need dimension becomes Elevated. No cooldown beyond that: it is selected again
- *  only after the need went back to Normal.
+ *  whenever one need dimension leaves Normal (becomes Elevated or High). No cooldown beyond that:
+ *  it is selected again only after the need went back to Normal.
  *  With the defaults: Intervention.Combat.Placeholder when Combat becomes Elevated.
  *
  *  Replaced by utility-based selection over the game's actions in #18.
@@ -28,4 +28,9 @@ public:
 	FName InterventionName = TEXT("Intervention.Combat.Placeholder");
 
 	virtual void Update(FAdaptivePipelineFrame& Frame) override;
+
+protected:
+
+	/** The need was Elevated or High in the previous update; Elevated → High is no new trigger */
+	bool bWasElevated = false;
 };

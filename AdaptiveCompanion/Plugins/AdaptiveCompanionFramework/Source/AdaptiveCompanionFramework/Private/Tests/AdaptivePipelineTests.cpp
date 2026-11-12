@@ -78,46 +78,59 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptivePipelineFeatureNeedTest, "AdaptiveComp
 
 bool FAdaptivePipelineFeatureNeedTest::RunTest(const FString& Parameters)
 {
-	// defaults: damage in the last 5 s / 5, Combat elevated from 0.6
+	// defaults: damage in the last 5 s / 5 is the Combat need, smoothed (rise half-life 0.5 s,
+	// fall 3 s), Elevated from 0.5 and back to Normal below 0.35
 	UAdaptiveFeatureStage* Features = NewObject<UAdaptiveFeatureStage>();
 	UAdaptiveNeedStage* Need = NewObject<UAdaptiveNeedStage>();
 
-	auto Run = [&](double Time, TArray<FAdaptiveTelemetryEvent> Events)
+	double Time = 0.0;
+	FAdaptivePipelineFrame Frame;
+	auto Step = [&](TArray<FAdaptiveTelemetryEvent> Events = {})
 	{
-		FAdaptivePipelineFrame Frame;
+		Frame = FAdaptivePipelineFrame();
 		Frame.Time = Time;
 		Frame.Events = MoveTemp(Events);
 		Features->Update(Frame);
 		Need->Update(Frame);
-		return Frame;
+		Time += 0.1;
 	};
+	auto Run = [&](double Until) { while (Time < Until - 1e-6) { Step(); } };
+	auto Combat = [&]() { return Frame.Needs.FindRef(TEXT("Combat")); };
 
-	FAdaptivePipelineFrame Frame = Run(0.0, {});
+	Step();
 	TestEqual(TEXT("No damage, feature 0"), Frame.Features.FindRef(TEXT("Combat.DamageRecent")), 0.0);
-	TestFalse(TEXT("No damage, not elevated"), Frame.Needs.FindRef(TEXT("Combat")).bElevated);
+	TestEqual(TEXT("No damage, Normal"), Combat().Level, EAdaptiveNeedLevel::Normal);
 
-	Frame = Run(1.0, { { TEXT("Combat.DamageTaken"), 1.0, 0.9 }, { TEXT("Other.Event"), 100.0, 0.9 } });
+	Run(1.0);
+	Step({ { TEXT("Combat.DamageTaken"), 1.0, Time }, { TEXT("Other.Event"), 100.0, Time } });
 	TestEqual(TEXT("Only the configured event counts"), Frame.Features.FindRef(TEXT("Combat.DamageRecent")), 0.2);
-
-	Frame = Run(2.0, { { TEXT("Combat.DamageTaken"), 1.0, 1.9 } });
-	TestFalse(TEXT("0.4 is below the threshold"), Frame.Needs.FindRef(TEXT("Combat")).bElevated);
-
-	Frame = Run(3.0, { { TEXT("Combat.DamageTaken"), 1.0, 2.9 } });
+	Step({ { TEXT("Combat.DamageTaken"), 1.0, Time }, { TEXT("Combat.DamageTaken"), 1.0, Time } });
 	TestEqual(TEXT("Damage is summed over the window"), Frame.Features.FindRef(TEXT("Combat.DamageRecent")), 0.6, 1e-9);
-	TestTrue(TEXT("0.6 is elevated"), Frame.Needs.FindRef(TEXT("Combat")).bElevated);
-	TestTrue(TEXT("Change is flagged"), Frame.Needs.FindRef(TEXT("Combat")).bChanged);
+	TestEqual(TEXT("Raw score is the feature"), Combat().RawScore, 0.6, 1e-9);
+	TestEqual(TEXT("Smoothed score lags behind"), Combat().Level, EAdaptiveNeedLevel::Normal);
 
-	Frame = Run(3.1, {});
-	TestTrue(TEXT("Still elevated"), Frame.Needs.FindRef(TEXT("Combat")).bElevated);
-	TestFalse(TEXT("Change is only flagged once"), Frame.Needs.FindRef(TEXT("Combat")).bChanged);
+	// 0.6 · (1 − 0.5^(t / 0.5)) reaches 0.5 after about 1.3 s
+	const double HitTime = Time - 0.1;
+	double ElevatedAt = -1.0;
+	while (Time < HitTime + 3.0)
+	{
+		Step();
+		if (Combat().bChanged && Combat().Level == EAdaptiveNeedLevel::Elevated)
+		{
+			ElevatedAt = Frame.Time;
+		}
+	}
+	TestTrue(TEXT("Elevated about 1.3 s after the hits"), ElevatedAt > HitTime + 1.1 && ElevatedAt < HitTime + 1.5);
+	TestEqual(TEXT("Still elevated"), Combat().Level, EAdaptiveNeedLevel::Elevated);
+	TestFalse(TEXT("Change is only flagged once"), Combat().bChanged);
 
-	Frame = Run(20.0, { { TEXT("Combat.DamageTaken"), 30.0, 20.0 } });
-	TestEqual(TEXT("Clamped to 1"), Frame.Features.FindRef(TEXT("Combat.DamageRecent")), 1.0);
-
-	Frame = Run(25.0, {});
+	Run(HitTime + 5.25);   // a little past the window edge, so time summed in 0.1 steps is safely past it
 	TestEqual(TEXT("Damage leaves the window after 5 s"), Frame.Features.FindRef(TEXT("Combat.DamageRecent")), 0.0);
-	TestFalse(TEXT("Back to normal"), Frame.Needs.FindRef(TEXT("Combat")).bElevated);
-	TestTrue(TEXT("Change back is flagged"), Frame.Needs.FindRef(TEXT("Combat")).bChanged);
+	TestEqual(TEXT("The level holds while the score falls"), Combat().Level, EAdaptiveNeedLevel::Elevated);
+
+	// 0.6 · 0.5^(t / 3) falls below 0.35 after about 2.3 s
+	Run(HitTime + 8.0);
+	TestEqual(TEXT("Back to normal"), Combat().Level, EAdaptiveNeedLevel::Normal);
 
 	return true;
 }
@@ -228,17 +241,22 @@ bool FAdaptivePipelineSelectionTest::RunTest(const FString& Parameters)
 {
 	UAdaptiveSelectionStage* Selection = NewObject<UAdaptiveSelectionStage>();
 
-	auto Select = [&](bool bElevated, bool bChanged)
+	auto Select = [&](EAdaptiveNeedLevel Level)
 	{
 		FAdaptivePipelineFrame Frame;
-		Frame.Needs.Add(TEXT("Combat"), { 0.7, bElevated, bChanged });
+		FAdaptiveNeedState State;
+		State.Score = 0.7;
+		State.Level = Level;
+		Frame.Needs.Add(TEXT("Combat"), State);
 		Selection->Update(Frame);
 		return Frame.Intervention;
 	};
 
-	TestEqual(TEXT("Selected when the need becomes elevated"), Select(true, true), FName(TEXT("Intervention.Combat.Placeholder")));
-	TestTrue(TEXT("Not again while it stays elevated"), Select(true, false).IsNone());
-	TestTrue(TEXT("Not when it goes back to normal"), Select(false, true).IsNone());
+	TestEqual(TEXT("Selected when the need becomes elevated"), Select(EAdaptiveNeedLevel::Elevated), FName(TEXT("Intervention.Combat.Placeholder")));
+	TestTrue(TEXT("Not again while it stays elevated"), Select(EAdaptiveNeedLevel::Elevated).IsNone());
+	TestTrue(TEXT("Not again when it rises to high"), Select(EAdaptiveNeedLevel::High).IsNone());
+	TestTrue(TEXT("Not when it goes back to normal"), Select(EAdaptiveNeedLevel::Normal).IsNone());
+	TestEqual(TEXT("Again after it was normal, also straight to high"), Select(EAdaptiveNeedLevel::High), FName(TEXT("Intervention.Combat.Placeholder")));
 
 	FAdaptivePipelineFrame Empty;
 	Selection->Update(Empty);

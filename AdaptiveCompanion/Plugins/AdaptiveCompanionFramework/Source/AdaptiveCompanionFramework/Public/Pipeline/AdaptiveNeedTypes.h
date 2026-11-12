@@ -3,6 +3,50 @@
 #include "CoreMinimal.h"
 #include "AdaptiveNeedTypes.generated.h"
 
+/** Discrete level of a need dimension, derived from its smoothed score with hysteresis */
+UENUM(BlueprintType)
+enum class EAdaptiveNeedLevel : uint8
+{
+	Normal,
+	Elevated,
+	High,
+};
+
+/**
+ *  How a dimension's raw score is smoothed and turned into a level. Half-lives instead of a fixed
+ *  smoothing factor, so the behavior doesn't depend on the update rate. Each level has an enter
+ *  threshold and a lower exit threshold (hysteresis).
+ */
+USTRUCT(BlueprintType)
+struct ADAPTIVECOMPANIONFRAMEWORK_API FAdaptiveNeedLevelSettings
+{
+	GENERATED_BODY()
+
+	/** Seconds until the smoothed score has covered half the way to a higher raw score. A raw score of 1 reaches 0.5 after exactly this time. 0 = no smoothing */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (ClampMin = "0", Units = "s"))
+	double RiseHalfLife = 0.5;
+
+	/** Same for a lower raw score. Longer than the rise, so help doesn't stop the moment the player is briefly fine */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Smoothing", meta = (ClampMin = "0", Units = "s"))
+	double FallHalfLife = 3.0;
+
+	/** Normal becomes Elevated at or above this smoothed score */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Levels", meta = (ClampMin = "0", ClampMax = "1"))
+	double ElevatedEnter = 0.5;
+
+	/** Elevated becomes Normal below this. Capped at ElevatedEnter */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Levels", meta = (ClampMin = "0", ClampMax = "1"))
+	double ElevatedExit = 0.35;
+
+	/** Elevated becomes High at or above this. At least ElevatedEnter */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Levels", meta = (ClampMin = "0", ClampMax = "1"))
+	double HighEnter = 0.75;
+
+	/** High becomes Elevated below this. Capped at HighEnter */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Levels", meta = (ClampMin = "0", ClampMax = "1"))
+	double HighExit = 0.6;
+};
+
 /** One feature a need rule reads, optionally negated (1 - value) */
 USTRUCT(BlueprintType)
 struct ADAPTIVECOMPANIONFRAMEWORK_API FAdaptiveNeedCondition
@@ -92,4 +136,12 @@ namespace AdaptiveNeedMath
 
 	/** The rule's Name, or its features joined by " & ", negated ones with "not " */
 	ADAPTIVECOMPANIONFRAMEWORK_API FString Describe(const FAdaptiveNeedRule& Rule);
+
+	/** One step of the exponential moving average toward Target over DeltaTime, with the rise or fall half-life depending on the direction */
+	ADAPTIVECOMPANIONFRAMEWORK_API double Smooth(double Previous, double Target, double DeltaTime, double RiseHalfLife, double FallHalfLife);
+
+	/** The level after Current for a smoothed Score: up while at or above the next enter threshold, down while below the current exit threshold */
+	ADAPTIVECOMPANIONFRAMEWORK_API EAdaptiveNeedLevel NextLevel(EAdaptiveNeedLevel Current, double Score, const FAdaptiveNeedLevelSettings& Settings);
+
+	ADAPTIVECOMPANIONFRAMEWORK_API const TCHAR* LevelName(EAdaptiveNeedLevel Level);
 }

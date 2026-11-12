@@ -2,17 +2,18 @@
 
 #include "CoreMinimal.h"
 #include "Pipeline/AdaptivePipelineStage.h"
+#include "Pipeline/AdaptiveNeedTypes.h"
 #include "AdaptiveNeedStage.generated.h"
 
 class UAdaptiveNeedEstimator;
 
 /**
- *  3 Assistance-need estimation. The Estimator turns the features into one score per dimension
- *  (rule-based by default, #14); the stage writes them to Frame.Needs, logs them and shows them in
- *  the overlay.
+ *  3 Assistance-need estimation. The Estimator turns the features into one raw score per dimension
+ *  (rule-based by default, #14). The stage smooths each score over time and maps it to a level
+ *  (Normal, Elevated, High) with separate enter and exit thresholds (#15), so the state doesn't
+ *  flicker. It writes the result to Frame.Needs, logs it and shows it in the overlay.
  *
- *  Levels are still naive: a dimension is Elevated while its score is at or above Threshold.
- *  Smoothing and proper levels come in #15.
+ *  Smoothing and levels are applied the same way to every estimator.
  */
 UCLASS(meta = (DisplayName = "Need Stage"))
 class ADAPTIVECOMPANIONFRAMEWORK_API UAdaptiveNeedStage : public UAdaptivePipelineStage
@@ -27,11 +28,15 @@ public:
 	UPROPERTY(EditAnywhere, Instanced, Category = "Need", meta = (NoResetToDefault))
 	TObjectPtr<UAdaptiveNeedEstimator> Estimator;
 
-	/** A dimension is Elevated while its score is at or above this */
-	UPROPERTY(EditAnywhere, Category = "Need", meta = (ClampMin = "0", ClampMax = "1"))
-	double Threshold = 0.6;
+	/** Smoothing and level thresholds of every dimension without its own entry in DimensionLevels */
+	UPROPERTY(EditAnywhere, Category = "Levels")
+	FAdaptiveNeedLevelSettings Levels;
 
-	/** A score is logged when its value rounded to this step, its reason or whether it is active changed */
+	/** Smoothing and level thresholds for single dimensions, by dimension name */
+	UPROPERTY(EditAnywhere, Category = "Levels")
+	TMap<FName, FAdaptiveNeedLevelSettings> DimensionLevels;
+
+	/** A dimension is logged when its smoothed or raw score rounded to this step, its reason or whether it is active changed */
 	UPROPERTY(EditAnywhere, Category = "Need", meta = (ClampMin = "0.0001", ClampMax = "1"))
 	double LogStep = 0.01;
 
@@ -40,15 +45,23 @@ public:
 
 	virtual void Update(FAdaptivePipelineFrame& Frame) override;
 
+	/** The settings that apply to a dimension */
+	const FAdaptiveNeedLevelSettings& GetLevelSettings(FName Dimension) const;
+
 protected:
 
 	struct FDimensionState
 	{
-		bool bElevated = false;
+		double Smoothed = 0.0;
+		EAdaptiveNeedLevel Level = EAdaptiveNeedLevel::Normal;
 		TOptional<double> LoggedScore;
+		TOptional<double> LoggedRaw;
 		FString LoggedReason;
 		bool bLoggedActive = true;
 	};
 
 	TMap<FName, FDimensionState> States;
+
+	/** Frame.Time of the previous update, unset before the first */
+	TOptional<double> PreviousTime;
 };

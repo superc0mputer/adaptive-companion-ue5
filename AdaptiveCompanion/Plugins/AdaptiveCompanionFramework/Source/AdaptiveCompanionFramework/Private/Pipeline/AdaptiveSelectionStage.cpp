@@ -6,7 +6,10 @@
 void UAdaptiveSelectionStage::Update(FAdaptivePipelineFrame& Frame)
 {
 	const FAdaptiveNeedState* Need = Frame.Needs.Find(NeedName);
-	if (!Need || !Need->bElevated || !Need->bChanged)
+	const bool bElevated = Need && Need->Level != EAdaptiveNeedLevel::Normal;
+	const bool bBecameElevated = bElevated && !bWasElevated;
+	bWasElevated = bElevated;
+	if (!bBecameElevated)
 	{
 		return;
 	}
@@ -20,6 +23,7 @@ void UAdaptiveSelectionStage::Update(FAdaptivePipelineFrame& Frame)
 		Payload->SetStringField(TEXT("phase"), TEXT("selected"));
 		Payload->SetStringField(TEXT("need"), NeedName.ToString());
 		Payload->SetNumberField(TEXT("score"), Need->Score);
+		Payload->SetStringField(TEXT("level"), AdaptiveNeedMath::LevelName(Need->Level));
 		Log->LogRecord(AdaptiveLogRecordType::Intervention, Payload);
 	}
 
