@@ -47,10 +47,11 @@ NaN and infinity in a payload are written as `null`, so every line stays valid J
 | `session_start` | Logger, first record | `project`, `project_version`, `plugin_version`, `engine_version`, `build_config`, `platform`, `editor`, `start_utc` |
 | `level_start` | Logger, when a level begins play | `map`, `game_mode` |
 | `pipeline_start` | Pipeline, at session start | `config`, `update_rate`, `pause_with_game`, `stages` ([PIPELINE.md](PIPELINE.md)) |
+| `feature_definitions` | Feature stage, right after `pipeline_start` | `features`: every feature's definition ([PIPELINE.md](PIPELINE.md#features)) |
 | `marker` | `ac.Log.Marker <text>` | `text` |
 | `session_end` | Logger, last record | `duration` (s), `records` (including this one) |
 | `signal` | Telemetry stage, for every reported event and every changed value | `name`, `kind` (`event` / `value`), `value` |
-| `feature` | Feature stage, when a feature changed | `name`, `value` |
+| `feature` | Feature stage, when a feature's value rounded to 0.01 changed | `name`, `value`, `raw` (before normalization, `null` without data) |
 | `state` | Need stage, when a need's level changed | `need`, `score`, `level` (`Normal` / `Elevated`) |
 | `context` | Context stage, whenever the game activates or deactivates a context | `name`, `active` (true / false), `contexts` (all active contexts after the change) |
 | `objective` | Context stage, whenever the game sets or clears the objective | `name`, `active` (false when cleared), `x`, `y`, `z` (m) |

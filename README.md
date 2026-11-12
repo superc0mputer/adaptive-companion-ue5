@@ -62,6 +62,13 @@ From the camera and input it reports how fast the player turns the camera, how f
 away from the objective, how many nearby enemies are out of view, and how long they have given
 no input. Details: [docs/PIPELINE.md](docs/PIPELINE.md#camera-and-input-telemetry).
 
+The framework turns these raw signals into 14 features in [0, 1], where 1 always means "more of a
+problem": e.g. recent damage, miss rate, enemies out of view, no progress toward the objective,
+standing still, looking around. Each one aggregates a signal over a sliding window (count, sum,
+ratio, latest, mean, slope, share below or above a threshold) and maps it from a fixed range to
+[0, 1]. They are defined in `DA_PipelineConfig`, not in code, logged and shown in the overlay.
+Details: [docs/PIPELINE.md](docs/PIPELINE.md#features).
+
 For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
 where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
 written to the session log. `Lvl_NavigationScenario` is a maze with four objectives in a row,

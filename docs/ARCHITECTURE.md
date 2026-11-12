@@ -32,7 +32,7 @@ an interface, delegate, gameplay tag or Data Asset, and the game implements or p
 | Plugin (`AdaptiveCompanionFramework`) | Game (`AdaptiveCompanion`) |
 |---|---|
 | Telemetry collection: generic events and signals (damage taken, position, camera, input) | Calls into the telemetry API from its own characters, weapons, levels |
-| Feature extraction: sliding windows, 0–1 normalization | Which signals exist in this game and how they map to telemetry events |
+| Feature extraction: sliding windows, aggregations, 0–1 normalization | Which signals exist in this game and how they map to telemetry events; the feature list with its windows and bounds |
 | Assistance-need estimation (combat, navigation, threat, disorientation) with smoothing | Gameplay context: current scenario, objectives, points of interest |
 | Intervention selection: utility scoring, cooldowns, repetition penalties | The concrete companion character, its mesh, animations and StateTree |
 | Session logging, debug overlay and replay infrastructure | Concrete behaviors (navigation hints, threat call-outs, drawing aggro) |
@@ -61,8 +61,9 @@ Game-specific assets live in `Content/Companion/`, which is allow-listed in `.gi
 |---|---|
 | `UAdaptivePipelineSubsystem` | Game instance subsystem: runs the six stages in order at a fixed rate (default 10 Hz), takes the game's telemetry (`ReportEvent`, `ReportValue`) and gameplay context (`SetContext`) and hands selected interventions back (`OnIntervention`, `ReportInterventionPhase`) |
 | `UAdaptivePipelineStage` | Base class of the stages: `Initialize`, `Update(Frame)`, `Deinitialize` |
-| `UAdaptiveTelemetryStage`, `UAdaptiveFeatureStage`, `UAdaptiveNeedStage`, `UAdaptiveContextStage`, `UAdaptiveSelectionStage`, `UAdaptiveBehaviorStage` | The six stages. Features, Need and Selection are deliberately naive (one damage feature, one threshold, one intervention) until their issues; Context holds the contexts the game reports |
+| `UAdaptiveTelemetryStage`, `UAdaptiveFeatureStage`, `UAdaptiveNeedStage`, `UAdaptiveContextStage`, `UAdaptiveSelectionStage`, `UAdaptiveBehaviorStage` | The six stages. Features computes the features defined in the config asset; Need and Selection are deliberately naive (one threshold, one intervention) until their issues; Context holds the contexts the game reports |
 | `FAdaptivePipelineFrame` | Data passed through the stages in one update |
+| `FAdaptiveFeatureDefinition`, `AdaptiveFeatureMath` | One feature's signal, aggregation, window and normalization; the aggregations and normalization as plain functions |
 | `UAdaptivePipelineConfig` | Data asset with the framework settings: update rate and the class and parameters of each stage. This game's instance is `Content/Companion/DA_PipelineConfig` |
 | `UAdaptivePipelineSettings` | Project Settings > Plugins > Adaptive Companion Pipeline: selects the config asset |
 | `AAdaptiveTelemetryTestActor` | Reports test telemetry (`ac.Pipeline.TestActor`) |

@@ -11,7 +11,7 @@ API the game reports telemetry through. It is part of the framework plugin
 | # | Stage | Class | Status |
 |---|---|---|---|
 | 1 | Telemetry | `UAdaptiveTelemetryStage` | Collects what the game reports, logs it, shows it in the overlay |
-| 2 | Features | `UAdaptiveFeatureStage` | Naive: one windowed sum ([first loop](#first-loop)), real features in #13 |
+| 2 | Features | `UAdaptiveFeatureStage` | Aggregates signals over time windows into features in [0, 1], defined in the config asset ([Features](#features)) |
 | 3 | Assistance Need | `UAdaptiveNeedStage` | Naive: one dimension, one threshold, real estimation in #14, #15 |
 | 4 | Context | `UAdaptiveContextStage` | Holds the contexts the game reports ([Gameplay context](#gameplay-context)), not used by Selection yet |
 | 5 | Intervention Selection | `UAdaptiveSelectionStage` | Naive: one fixed intervention, utility selection in #18 |
@@ -152,7 +152,7 @@ framework stays free of game types, and every change ends up in the log.
 ## Combat telemetry
 
 The signals the game reports about combat (#8). All are raw: they are in game units (damage, count,
-m), and turning them into 0–1 features is the job of the Features stage (#13).
+m), and turning them into 0–1 features is the job of the Features stage ([Features](#features)).
 
 | Signal | Kind | Reported when | Reported by |
 |---|---|---|---|
@@ -214,7 +214,7 @@ after respawning at the start (22.90) no enemy is near.
 ## Navigation telemetry
 
 The signals the game reports about how the player moves toward the current objective (#9). Like
-the combat signals they are raw (m, m/s, −1…1); features come in #13.
+the combat signals they are raw (m, m/s, −1…1); the features are in [Features](#features).
 
 | Signal | Kind | Reported when | Reported by |
 |---|---|---|---|
@@ -234,7 +234,7 @@ level without objectives only reports speed and revisits. The navigation test le
 **How progress is measured:** as the decrease of `Nav.ObjectiveDistance` over time. The path
 length along the navmesh is used instead of the straight line, because around walls and in dead
 ends the straight line says "close" while the player is still far away. The rate itself is a
-feature and is derived in #13.
+feature, `Nav.NoProgress` ([Features](#features)).
 
 **Why these:** distance gives progress, alignment tells right away whether the player heads toward
 the objective (without waiting for the distance to change), speed shows hesitating and standing
@@ -290,7 +290,7 @@ reached.
 ## Camera and input telemetry
 
 The signals the game reports about where the player looks and whether they give any input (#10).
-Raw like the others (°/s, °, count, s); features come in #13.
+Raw like the others (°/s, °, count, s); the features are in [Features](#features).
 
 | Signal | Kind | Reported when | Reported by |
 |---|---|---|---|
@@ -370,6 +370,166 @@ so no measurable difference. One check takes 9–13 µs on average (timed over 2
 
 ![An enemy behind the player: Combat.EnemiesOutOfView is 1](images/camera-input-telemetry.png)
 
+## Features
+
+The Features stage (#13) turns the raw signals into features in [0, 1], so the Need stage (#14)
+can compare and weigh them. Each feature reads one signal, aggregates it over a sliding time
+window and maps the result linearly from a configured range to [0, 1]:
+
+```
+signal ─▶ samples in the window ─▶ aggregation ─▶ raw value ─▶ [Min, Max] → [0, 1] ─▶ Frame.Features
+```
+
+Features are defined in the config asset (*2 Features › Features*), not in code; the framework
+knows no signal names. `UAdaptiveFeatureStage`'s built-in list holds only the first loop's
+`Combat.DamageRecent`, so a config without a list still drives the naive Need stage.
+
+### Definition
+
+| Field | |
+|---|---|
+| Name | Name in `Frame.Features`, the log and the overlay |
+| Signal | The telemetry event or value it reads |
+| Aggregation | See below |
+| Denominator | *Ratio* only: the event counted below the line |
+| Window | Only samples younger than this count (s). Ignored by *Latest* |
+| Threshold | *FractionBelow* / *FractionAbove* only |
+| Min, Max | Raw values that map to 0 and 1. Values outside are clamped |
+| Invert | Maps Min to 1 and Max to 0 |
+| Default | The feature's value while there is no data: nothing reported yet, no denominator events, a *Slope* window less than half full, gate closed |
+| Reset Event | Optional event that restarts the window: samples up to and including it no longer count |
+| Only While Non Zero | Optional value signal that gates the feature: while it is 0 the feature is *Default*, and its window restarts when the signal becomes non-zero again |
+
+| Aggregation | Reads | Raw value |
+|---|---|---|
+| Latest | value | The most recent sample |
+| Mean | value | Mean of the samples in the window |
+| Slope | value | Change per second, least-squares fit over the window |
+| FractionBelow / FractionAbove | value | Share of the samples below / above the threshold |
+| Count | event | Number of events in the window |
+| Sum | event | Sum of the events' values in the window |
+| Ratio | events | Number of *Signal* events ÷ number of *Denominator* events in the window |
+
+Events are kept with the time they were reported; values are sampled once per update (10 Hz), so
+a window over a value is a series of evenly spaced samples. Each signal's samples are kept as long
+as the longest window that reads it, and the newest value sample is always kept for *Latest*. A
+definition without a name or signal, a *Ratio* without a denominator or a duplicate name is
+skipped with a warning.
+
+### Decisions
+
+**Aggregations.** Each question the needs will ask maps to one aggregation: *how much happened
+recently* (count, sum), *how well does it go* (ratio: hits per attack), *what is it now* (latest:
+health, enemies), *what is it typically* (mean: turn rate, heading), *is it getting better*
+(slope: distance to the objective), *how much of the time* (fraction: standing still). A slope is
+fitted by least squares instead of (last − first) / time, because distance and speed are rounded
+and noisy, and a single outlier at either end of the window would decide the result. Min, max and
+standard deviation are left out: no feature needs them yet, and adding one is a few lines.
+
+**Window lengths.** Per feature, by how fast its situation changes. Combat and threat use short
+windows (5–10 s) or the latest value: a fight changes within seconds, and help that comes late is
+useless. Navigation and disorientation use 10 s: being lost shows only over time, and a shorter
+window would react to a single turn at a junction. Rare events use long windows (revisits 30 s,
+deaths 60 s), so one occurrence stays visible long enough to matter. All are first values that the
+tuning pass (#16) adjusts on recorded sessions.
+
+**Normalization.** Linear between a fixed Min and Max per feature, clamped, optionally inverted.
+Per-player normalization (z-scores or running min/max) was rejected: it needs a warm-up period,
+drifts during a session, and makes the same value mean something different for each player, which
+breaks the classification tests on scripted traces (H1) and comparisons between study
+participants. Fixed bounds are explainable ("3 m/s of progress or more counts as 0") and
+reproducible, and the ranges of all signals are known from #8–#10. Features are oriented so that
+**1 always means "more of a problem"**, so the Need stage can combine them with positive weights.
+
+**Resets and gates** keep features from reporting artifacts as behavior: when an objective is
+reached, the path distance jumps to the next one, which a slope would read as walking away very
+fast; without an objective the game reports distance 0, which would read as "no progress".
+
+### Features in this game
+
+Set in `Content/Companion/DA_PipelineConfig`:
+
+| Feature | Signal → aggregation, window | Normalization | 1 means |
+|---|---|---|---|
+| `Combat.DamageRecent` | `Combat.DamageTaken` → Sum, 5 s | 0–5 | the player's whole health (5 HP) lost in 5 s |
+| `Combat.HealthLow` | `Player.Health` → Latest | 0–1, inverted | no health left |
+| `Combat.MissRate` | `Combat.HitDealt` ÷ `Combat.AttackStarted`, 10 s | 0–1, inverted; default 0 | no swing hits |
+| `Combat.DeathRecent` | `Combat.PlayerDied` → Count, 60 s | 0–1 | died in the last minute |
+| `Threat.EnemiesNear` | `Combat.EnemiesNearby` → Latest | 0–4 | 4 or more enemies within 15 m |
+| `Threat.Proximity` | `Combat.NearestEnemyDistance` → Latest | 2–15 m, inverted | an enemy within 2 m |
+| `Threat.EnemiesUnseen` | `Combat.EnemiesOutOfView` → Latest | 0–2 | 2 or more nearby enemies out of view |
+| `Nav.NoProgress` | `Nav.ObjectiveDistance` → Slope, 10 s; reset on `Nav.ObjectiveReached`, only with an objective | −3…0 m/s | the distance doesn't shrink |
+| `Nav.Misalignment` | `Nav.HeadingAlignment` → Mean, 10 s; reset and gate as above | −1…1, inverted | moving away from the path |
+| `Nav.StandingStill` | `Nav.Speed` → FractionBelow 0.5 m/s, 10 s | 0–1 | standing the whole 10 s |
+| `Nav.Revisits` | `Nav.AreaRevisited` → Count, 30 s; reset on `Nav.ObjectiveReached` | 0–4 | 4 revisits in 30 s |
+| `Camera.LookingAround` | `Camera.TurnRate` → Mean, 5 s | 0–120 °/s | turning the camera 120 °/s on average |
+| `Camera.LookingAway` | `Camera.ObjectiveAngle` → Mean, 10 s; reset and gate as above | 0–180° | looking away from the objective |
+| `Input.Idle` | `Input.IdleTime` → Latest | 0–15 s | no input for 15 s or more |
+
+The bounds come from the ranges in #8–#10: the running speed is ≈ 4.7 m/s, so 3 m/s of distance
+decrease is clear progress; enemies deal 1 damage to the player's 5 HP; a deliberate look around
+turns the camera by 60–120 °/s.
+
+### Logging and overlay
+
+- At session start a `feature_definitions` record lists every definition, so each log says which
+  features it was computed with even after the asset changes.
+- A `feature` record (`name`, `value`, `raw`) is written when a feature's value, rounded to
+  *Log Step* (0.01), changes; `raw` is the value before normalization (`null` without data).
+  Windowed means drift with every sample, so without rounding they would log at every update.
+  `Frame.Features` keeps the unrounded values.
+- The overlay shows every feature as a bar in section *2 Features*, in the order of the asset.
+
+In a 55 s navigation run, the 14 features wrote 949 records, about as many as the signals (872).
+
+### Verification
+
+Scripted `-game` runs of `Lvl_NavigationScenario`: walk along the navmesh path to the current
+objective for 15 s (camera turning where the player walks), then backtrack for 20 s (8 s toward the
+start, 8 s back, 4 s toward the start), then stand and turn the camera at 60 °/s for 15 s.
+Features sampled at 10 Hz and averaged per phase:
+
+| Feature | Straight to objectives | Backtracking | Standing, looking around |
+|---|---|---|---|
+| `Nav.NoProgress` | 0.03 | 0.86 | 1.00 |
+| `Nav.Misalignment` | 0.13 | 0.60 | 0.61 |
+| `Nav.StandingStill` | 0.28 | 0.26 | 0.78 (0.60 → 1.00) |
+| `Nav.Revisits` | 0 | 0.21 (1 revisit) | 0.20 |
+| `Camera.LookingAround` | 0.26 | 0.36 | 0.45 |
+| `Camera.LookingAway` | 0.36 | 0.42 | 0.52 |
+
+Going straight, progress is clear and the player heads along the path past two objectives.
+Backtracking, the distance
+grows and shrinks, the heading points away from the path most of the time, and the player passes
+through a cell they had left. Standing still, no progress is 1 and the standing-still share fills
+up over the 10 s window. Things the numbers show about the features:
+
+- `Nav.StandingStill` going straight includes the 3 s the player stood before the run started,
+  since the window reaches back 10 s.
+- `Nav.Misalignment` is 0.5 while standing, because the game reports alignment 0 without
+  movement. That is why standing still is its own feature.
+- `Camera.LookingAway` is 0.36 even going straight, because in the maze the path leads around
+  walls, away from the straight line to the objective.
+- `Camera.LookingAround` is above 0 while walking, because the script turns the camera at every
+  corner and turnaround, at up to 180 °/s.
+- `Input.Idle` is 1 in all runs, since the script gives no real input.
+
+In `Lvl_CombatScenario`, standing with a fixed camera and swinging every 1.5 s while the WarmUp
+enemy attacks: `Threat.Proximity` 0.7–1 and `Threat.EnemiesUnseen` 0.5 while the enemy circles
+behind the player, `Combat.HealthLow` 0.2 → 0.6 over three hits, `Combat.DamageRecent` up to 0.4
+(two hits within 5 s), and `Combat.MissRate` 0.83–1 with one hit in 6–7 swings. Log excerpt at the
+first exchange (payloads shortened):
+
+```json
+{"t":19.85,"type":"signal","payload":{"name":"Combat.DamageTaken","kind":"event","value":1}}
+{"t":19.98,"type":"feature","payload":{"name":"Combat.DamageRecent","value":0.2,"raw":1}}
+{"t":19.98,"type":"feature","payload":{"name":"Combat.HealthLow","value":0.2,"raw":0.8}}
+{"t":20.04,"type":"signal","payload":{"name":"Combat.HitDealt","kind":"event","value":1}}
+{"t":20.11,"type":"feature","payload":{"name":"Combat.MissRate","value":0.86,"raw":0.143}}
+```
+
+![Features while standing and looking around in the maze (left) and while an enemy attacks from behind (right)](images/feature-extraction.png)
+
 ## First loop
 
 The first version of stages 2–6 is deliberately naive (#6): one signal, one score, one
@@ -382,7 +542,7 @@ ACombatCharacter::TakeDamage ─ Combat.DamageTaken ─▶ Combat.DamageRecent �
 
 | Stage | What it does now | Parameters (defaults) |
 |---|---|---|
-| 2 Features | Sums the values of one event over a sliding window, divides by a fixed maximum, clamps to [0, 1] | *Event Name* `Combat.DamageTaken`, *Feature Name* `Combat.DamageRecent`, *Window* 5 s, *Max Value* 5 |
+| 2 Features | Sums the values of one event over a sliding window, divides by a fixed maximum, clamps to [0, 1]. Since #13 this is one entry of the general [Features](#features) stage | `Combat.DamageRecent`: `Combat.DamageTaken` → Sum, 5 s, 0–5 |
 | 3 Need | One dimension whose score is one feature; *Elevated* at or above the threshold, otherwise *Normal* | *Need Name* `Combat`, *Feature Name* `Combat.DamageRecent`, *Threshold* 0.6 |
 | 5 Selection | Selects one intervention in the update where the need becomes Elevated; again only after it was Normal | *Need Name* `Combat`, *Intervention Name* `Intervention.Combat.Placeholder` |
 | 6 Behavior | Broadcasts the selected intervention on `OnIntervention` | |
@@ -438,7 +598,8 @@ Companion Pipeline (`UAdaptivePipelineSettings`, saved to `DefaultGame.ini`).
 | Pause With Game | true | No updates while the game is paused |
 | Stages › 1 Telemetry … 6 Behavior | The stage's base class | Which class runs each stage, with its parameters. An empty slot uses the base class |
 | Telemetry › Log Every Update | false | Log every value at every update instead of only on change |
-| Features, Need, Selection › ... | see [First loop](#first-loop) | Parameters of the naive stages |
+| Features › Features, Log Step | see [Features](#features) | The feature definitions, and the rounding step for logging |
+| Need, Selection › ... | see [First loop](#first-loop) | Parameters of the naive stages |
 
 The stage objects in the asset are templates: each session creates its own copies, so stages can
 keep state. Without a selected asset (or if it can't be loaded) the pipeline runs with the
@@ -452,7 +613,8 @@ The pipeline adds these record types to the session log ([LOGGING.md](LOGGING.md
 |---|---|---|
 | `pipeline_start` | At session start | `config` (asset path or `defaults`), `update_rate`, `pause_with_game`, `stages` (class names in update order) |
 | `signal` | When an event is reported, when a value changed | `name`, `kind` (`event` or `value`), `value` |
-| `feature` | When a feature changed | `name`, `value` |
+| `feature_definitions` | At session start, after `pipeline_start` | `features`: every feature's definition |
+| `feature` | When a feature's value rounded to 0.01 changed | `name`, `value`, `raw` (before normalization, `null` without data) |
 | `state` | When a need's level changed | `need`, `score`, `level` (`Normal` or `Elevated`). A need starts as Normal without a record |
 | `context` | When the game activates or deactivates a context | `name`, `active`, `contexts` (all active contexts after the change) |
 | `objective` | When the game sets or clears the objective | `name`, `active`, `x`, `y`, `z` (m) |
@@ -492,8 +654,8 @@ values = sig[sig.kind == "value"].pivot_table(index="t", columns="name", values=
 ## Debug overlay
 
 Section *1 Telemetry* shows every value with its latest value, and every event with its latest
-value and how often it occurred, e.g. `Combat.DamageTaken  10.00 (2x)`. *2 Features* and
-*3 Assistance Need* show the feature and the Combat score as bars plus the level, *5* the last
+value and how often it occurred, e.g. `Combat.DamageTaken  10.00 (2x)`. *2 Features* shows
+every feature as a bar, *3 Assistance Need* the Combat score as a bar plus the level, *5* the last
 selected intervention and *6* the latest phase of each intervention, both with their time.
 *4 Context* shows every context the game reported, active or inactive, and since when.
 
@@ -514,9 +676,12 @@ The first loop runs without fighting by reporting three hits:
 starts the companion's reaction directly, without the pipeline (as `Intervention.Console`).
 
 Automation tests `AdaptiveCompanion.Pipeline.FixedRate` (update counts at different frame rates,
-hitches), `.Telemetry` (event and value hand-off), `.FeatureNeed` (window, normalization,
-threshold), `.Context` (set, change flag, repeated and no-op calls), `.Selection` (selected once per
-elevation) and `.Config` (default stages):
+hitches), `.Telemetry` (event and value hand-off), `.FeatureNeed` (the first loop's feature
+and threshold), `.Features.Aggregations` (every aggregation, missing data, minimum slope span),
+`.Features.Normalize` (range, clamp, invert), `.Features.Stage` (value sampling, windows, reset
+events, gates, ratio default, invalid definitions, trimming), `.Context` (set, change flag,
+repeated and no-op calls), `.Objective`, `.Selection` (selected once per elevation) and `.Config`
+(default stages):
 
 ```bash
 UnrealEditor-Cmd AdaptiveCompanion.uproject -ExecCmds="Automation RunTests AdaptiveCompanion.Pipeline; Quit" -unattended -nullrhi
