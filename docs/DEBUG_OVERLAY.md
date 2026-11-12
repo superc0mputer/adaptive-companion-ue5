@@ -14,6 +14,7 @@ watching them. It is part of the framework plugin
 | `ac.Debug.Demo` | Toggles animated test values in every section and shows the overlay |
 | `ac.Debug.Set <Section> <Name> <Value>` | Sets a test value. Numbers in [0, 1] become bars, other numbers are shown as numbers, everything else as text |
 | `ac.Debug.Clear [Section]` | Clears all values, or the values of one section |
+| `ac.Debug.Sections [Sections]` | Shows only these sections, by name or number, e.g. `ac.Debug.Sections 3 5 6`; empty shows all again. Useful when the overlay is taller than the screen |
 
 `Section` is a section name (`Telemetry`, `Features`, `Need`, `Context`, `Selection`, `Behavior`,
 case-insensitive) or its number 1–6, e.g. `ac.Debug.Set Need Need.Combat 0.7`.
@@ -31,7 +32,7 @@ One section per pipeline stage, in pipeline order. A section without values show
 | 3 Assistance Need | Every need dimension's smoothed score as a bar, plus `<dimension> why`: level, raw score and strongest rule, or *inactive in this context* (#14, #15) |
 | 4 Context | Every context the game reported, `active` or `inactive` and since when, e.g. `Context.Combat  active since 10.9 s`; the current objective; the test scenario's phase; every companion action with its availability, e.g. `Action.ThreatCallout  unavailable: no enemy out of view` (#17) |
 | 5 Intervention Selection | The decision and its reason, every action's utility and terms or why it is no candidate (e.g. `cooldown, 14 s left`), the last selected action and when (#18) |
-| 6 Behavior | Latest phase of each intervention and when (#19) |
+| 6 Behavior | Latest phase of each intervention and when; final phases with the time since dispatch, failures with their reason (#19) |
 
 ## Writing values
 
