@@ -198,6 +198,9 @@ public:
 	/** Broadcast when the character runs out of HP, before it respawns */
 	FOnCombatCharacterDied OnDied;
 
+	/** HP left; 0 from death until the respawn */
+	float GetCurrentHP() const { return CurrentHP; }
+
 protected:
 
 	/** Called for movement input */

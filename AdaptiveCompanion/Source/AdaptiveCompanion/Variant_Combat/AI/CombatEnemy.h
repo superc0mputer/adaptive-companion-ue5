@@ -170,6 +170,42 @@ public:
 	/** Returns the last game time we were attacked */
 	float GetLastDangerTime() const;
 
+	/**
+	 *  Makes this enemy go after Target instead of the player for Duration seconds (the companion's
+	 *  draw aggro, #22). While taunted, the enemy's StateTree is paused and TauntUpdate runs it
+	 *  instead: run to the target, face it, combo attack, repeat. The StateTree places its flanking
+	 *  and evasion moves around the player (Blueprint EQS context in Epic's content), so it can't just
+	 *  be given another target. Afterwards the StateTree starts over and goes back to the player.
+	 *  Ignored while dead
+	 */
+	void SetTauntTarget(ACharacter* Target, float Duration);
+
+	/** Ends a taunt early and sends the enemy back to the player right away */
+	void ClearTaunt();
+
+	/** The character taunting this enemy, or nullptr if there is none, it expired or it is gone */
+	ACharacter* GetTauntTarget() const;
+
+	/** While taunted: attack once within this distance of the target */
+	UPROPERTY(EditAnywhere, Category="Taunt", meta = (ClampMin = 0, Units = "cm"))
+	float TauntAttackRange = 170.0f;
+
+	/** While taunted: pause between two attacks */
+	UPROPERTY(EditAnywhere, Category="Taunt", meta = (ClampMin = 0, Units = "s"))
+	float TauntAttackInterval = 1.5f;
+
+protected:
+
+	/** Chases and attacks the taunt target, 5 times a second */
+	void TauntUpdate();
+
+	TWeakObjectPtr<ACharacter> TauntTarget;
+	double TauntEndTime = 0.0;
+	double LastTauntAttackTime = -1000.0;
+	FTimerHandle TauntTimer;
+
+public:
+
 public:
 
 	// ~begin ICombatAttacker interface

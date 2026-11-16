@@ -111,6 +111,11 @@ the screen edge points at it ("Behind you!", "Left!", "Right!"), a red cone mark
 companion turns to face it. It ends when the enemy is in view, is gone, or after 5 s. Details:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#threat-call-out).
 
+Drawing aggro takes pressure off the player: the companion runs in, taunts up to two enemies and
+leads them 7 m away, where they fight it (it takes no damage) for 12 s before going back to the
+player. In the four-enemy wave this nearly halved the enemies around a player standing still (2.29 → 1.22).
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#draw-aggro).
+
 For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
 where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
 written to the session log. `Lvl_NavigationScenario` is a maze with four objectives in a row,
