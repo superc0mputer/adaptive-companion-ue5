@@ -29,8 +29,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAdaptiveInterventionDelegate, FName
  *
  *    RegisterActions(Companion, Actions)     what the companion can do (UAdaptiveCompanionAction assets)
  *
- *  The selected interventions come back to the game through OnIntervention; the game carries them
- *  out and reports their phases with ReportInterventionPhase.
+ *  A selected action is handed to the handler that registered it (PerformAction); the game carries
+ *  it out and reports its phases with ReportInterventionPhase. OnIntervention notifies anyone else.
  *
  *  Names are plain FNames chosen by the game, so the framework needs no game types. Update rate
  *  and stage classes come from the config asset selected in UAdaptivePipelineSettings.
@@ -90,13 +90,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Adaptive Companion|Actions")
 	void UnregisterActions(UObject* Handler);
 
-	/** Called when the pipeline selected an intervention. The game carries it out, e.g. by sending its companion an event */
+	/** Called when the pipeline selected an intervention, after it was handed to its handler. For listeners that only want to know (e.g. UI) */
 	UPROPERTY(BlueprintAssignable, Category = "Adaptive Companion|Behavior")
 	FAdaptiveInterventionDelegate OnIntervention;
 
-	/** Reports a phase of an intervention received through OnIntervention, e.g. "started" or "ended". Logged as an intervention record */
-	UFUNCTION(BlueprintCallable, Category = "Adaptive Companion|Behavior")
-	void ReportInterventionPhase(FName Intervention, FName Phase);
+	/**
+	 *  Reports a phase of an intervention the game is carrying out: "started", then "completed",
+	 *  "failed" (Detail: why) or "interrupted". The final ones end the intervention, so Selection can
+	 *  pick the next one. Logged as an intervention record
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Companion|Behavior", meta = (AdvancedDisplay = "Detail"))
+	void ReportInterventionPhase(FName Intervention, FName Phase, const FString& Detail = TEXT(""));
 
 	/** Runs all stages once, now. Normally called at the configured rate */
 	void Update();

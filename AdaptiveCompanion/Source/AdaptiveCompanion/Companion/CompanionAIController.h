@@ -9,11 +9,11 @@
 class UStateTreeAIComponent;
 
 /**
- *  AI Controller for the companion. Runs the StateTree assigned on the possessed ACompanionCharacter,
- *  and starts its Intervention branch whenever the adaptive companion pipeline selects an intervention.
+ *  AI Controller for the companion. Runs the StateTree assigned on the possessed ACompanionCharacter.
  *
  *  Registers the companion's actions (ACompanionCharacter::Actions) with the pipeline while it
- *  controls the companion, and tells the pipeline whether each one is possible right now.
+ *  controls the companion, tells the pipeline whether each one is possible right now, and starts
+ *  the action's state in the StateTree's Intervention branch when the pipeline selects it.
  */
 UCLASS()
 class ADAPTIVECOMPANION_API ACompanionAIController : public AAIController, public IAdaptiveCompanionActionHandler
@@ -32,12 +32,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Companion")
 	void SendCompanionEvent(FGameplayTag EventTag);
 
-	/** Moves the StateTree into its Intervention branch for the given intervention */
+	/** Moves the StateTree into its Intervention branch, which enters the state for this intervention. False without a running StateTree */
 	UFUNCTION(BlueprintCallable, Category = "Companion")
-	void StartIntervention(FName Intervention);
+	bool StartIntervention(FName Intervention);
 
 	/** IAdaptiveCompanionActionHandler: whether the companion can carry out the action right now */
 	virtual FAdaptiveActionCheck CheckAction_Implementation(const UAdaptiveCompanionAction* Action) override;
+
+	/** IAdaptiveCompanionActionHandler: starts the action's state in the Intervention branch. False without a running StateTree */
+	virtual bool PerformAction_Implementation(const UAdaptiveCompanionAction* Action) override;
 
 	/** The intervention the Intervention branch is (or was last) carrying out */
 	UFUNCTION(BlueprintPure, Category = "Companion")
@@ -50,10 +53,6 @@ protected:
 
 	virtual void OnPossess(APawn* InPawn) override;
 	virtual void OnUnPossess() override;
-
-	/** Bound to the pipeline's OnIntervention */
-	UFUNCTION()
-	void HandlePipelineIntervention(FName Intervention);
 
 	FAdaptiveActionCheck CheckNavigationHint();
 	FAdaptiveActionCheck CheckThreatCallout() const;

@@ -11,6 +11,7 @@
 #include "GameFramework/PlayerController.h"
 #include "DrawDebugHelpers.h"
 #include "AdaptiveCompanion.h"
+#include "Pipeline/AdaptiveBehaviorStage.h"
 #include "Pipeline/AdaptivePipelineSubsystem.h"
 
 namespace
@@ -172,15 +173,18 @@ EStateTreeRunStatus FCompanionInterventionPlaceholderTask::EnterState(FStateTree
 {
 	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
 	InstanceData.ElapsedTime = 0.0f;
+	InstanceData.Outcome = NAME_None;
+	InstanceData.FailReason.Reset();
 
 	ACompanionAIController* Controller = Cast<ACompanionAIController>(InstanceData.Controller);
 	ACharacter* Companion = Controller ? Controller->GetPawn<ACharacter>() : nullptr;
+	InstanceData.Intervention = Controller ? Controller->GetCurrentIntervention() : NAME_None;
 	if (!Companion)
 	{
+		InstanceData.Outcome = AdaptiveInterventionPhase::Failed;
+		InstanceData.FailReason = TEXT("no companion");
 		return EStateTreeRunStatus::Failed;
 	}
-
-	InstanceData.Intervention = Controller->GetCurrentIntervention();
 
 	Controller->StopMovement();
 	if (APawn* Player = UGameplayStatics::GetPlayerPawn(Controller, 0))
@@ -196,7 +200,7 @@ EStateTreeRunStatus FCompanionInterventionPlaceholderTask::EnterState(FStateTree
 
 	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(Companion))
 	{
-		Pipeline->ReportInterventionPhase(InstanceData.Intervention, TEXT("started"));
+		Pipeline->ReportInterventionPhase(InstanceData.Intervention, AdaptiveInterventionPhase::Started);
 	}
 
 	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion intervention '%s' started (placeholder)."), *InstanceData.Intervention.ToString());
@@ -209,9 +213,18 @@ EStateTreeRunStatus FCompanionInterventionPlaceholderTask::Tick(FStateTreeExecut
 	InstanceData.ElapsedTime += DeltaTime;
 
 	const bool bArrived = !InstanceData.Controller || InstanceData.Controller->GetMoveStatus() != EPathFollowingStatus::Moving;
-	const bool bDone = (bArrived && InstanceData.ElapsedTime >= InstanceData.Duration) || InstanceData.ElapsedTime >= InstanceData.MaxDuration;
-
-	return bDone ? EStateTreeRunStatus::Succeeded : EStateTreeRunStatus::Running;
+	if (bArrived && InstanceData.ElapsedTime >= InstanceData.Duration)
+	{
+		InstanceData.Outcome = AdaptiveInterventionPhase::Completed;
+		return EStateTreeRunStatus::Succeeded;
+	}
+	if (InstanceData.ElapsedTime >= InstanceData.MaxDuration)
+	{
+		InstanceData.Outcome = AdaptiveInterventionPhase::Failed;
+		InstanceData.FailReason = TEXT("didn't reach the player in time");
+		return EStateTreeRunStatus::Failed;
+	}
+	return EStateTreeRunStatus::Running;
 }
 
 void FCompanionInterventionPlaceholderTask::ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const
@@ -224,12 +237,14 @@ void FCompanionInterventionPlaceholderTask::ExitState(FStateTreeExecutionContext
 		ResetCompanionSpeed(InstanceData.Controller->GetPawn());
 	}
 
+	// no outcome yet: the state was left while the task still ran, e.g. another event or the companion was unpossessed
+	const FName Phase = InstanceData.Outcome.IsNone() ? AdaptiveInterventionPhase::Interrupted : InstanceData.Outcome;
 	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(InstanceData.Controller))
 	{
-		Pipeline->ReportInterventionPhase(InstanceData.Intervention, TEXT("ended"));
+		Pipeline->ReportInterventionPhase(InstanceData.Intervention, Phase, InstanceData.FailReason);
 	}
 
-	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion intervention '%s' ended (placeholder)."), *InstanceData.Intervention.ToString());
+	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion intervention '%s' %s (placeholder)."), *InstanceData.Intervention.ToString(), *Phase.ToString());
 }
 
 #if WITH_EDITOR
@@ -283,5 +298,46 @@ bool FCompanionHiddenFromPlayerCondition::TestCondition(FStateTreeExecutionConte
 FText FCompanionHiddenFromPlayerCondition::GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting /*= EStateTreeNodeFormatting::Text*/) const
 {
 	return FText::FromString("<b>Companion Hidden From Player</b>");
+}
+#endif // WITH_EDITOR
+
+////////////////////////////////////////////////////////////////////
+
+bool FCompanionIsCurrentInterventionCondition::TestCondition(FStateTreeExecutionContext& Context) const
+{
+	const FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+	const ACompanionAIController* Controller = Cast<ACompanionAIController>(InstanceData.Controller);
+	return Controller && !InstanceData.Intervention.IsNone() && Controller->GetCurrentIntervention() == InstanceData.Intervention;
+}
+
+#if WITH_EDITOR
+FText FCompanionIsCurrentInterventionCondition::GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting /*= EStateTreeNodeFormatting::Text*/) const
+{
+	const FInstanceDataType* InstanceData = InstanceDataView.GetPtr<FInstanceDataType>();
+	return FText::FromString(FString::Printf(TEXT("<b>Is Current Intervention</b> %s"), InstanceData ? *InstanceData->Intervention.ToString() : TEXT("")));
+}
+#endif // WITH_EDITOR
+
+////////////////////////////////////////////////////////////////////
+
+EStateTreeRunStatus FCompanionReportFailedTask::EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const
+{
+	const FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+	const ACompanionAIController* Controller = Cast<ACompanionAIController>(InstanceData.Controller);
+	const FName Intervention = Controller ? Controller->GetCurrentIntervention() : NAME_None;
+
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(InstanceData.Controller))
+	{
+		Pipeline->ReportInterventionPhase(Intervention, AdaptiveInterventionPhase::Failed, InstanceData.Reason);
+	}
+
+	UE_LOG(LogAdaptiveCompanion, Warning, TEXT("Companion intervention '%s' failed: %s."), *Intervention.ToString(), *InstanceData.Reason);
+	return EStateTreeRunStatus::Failed;
+}
+
+#if WITH_EDITOR
+FText FCompanionReportFailedTask::GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting /*= EStateTreeNodeFormatting::Text*/) const
+{
+	return FText::FromString("<b>Report Intervention Failed</b>");
 }
 #endif // WITH_EDITOR

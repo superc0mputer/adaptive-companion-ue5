@@ -19,6 +19,16 @@ public:
 	/** How often CheckAction was called */
 	int32 Checks = 0;
 
+	/** Whether PerformAction accepts, and the actions it was asked to perform */
+	bool bAccept = true;
+	TArray<FName> Performed;
+
+	virtual bool PerformAction_Implementation(const UAdaptiveCompanionAction* Action) override
+	{
+		Performed.Add(Action ? Action->ActionName : NAME_None);
+		return bAccept;
+	}
+
 	virtual FAdaptiveActionCheck CheckAction_Implementation(const UAdaptiveCompanionAction* Action) override
 	{
 		++Checks;

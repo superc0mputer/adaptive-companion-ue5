@@ -61,7 +61,7 @@ NaN and infinity in a payload are written as `null`, so every line stays valid J
 | `action_availability` | Context stage, when an action's availability or reason changed | `name`, `available`, `reason`, `cost`, `suitability` |
 | `action_unregistered` | Context stage, when an action is removed | `name`, `reason` (`unregistered` / `handler destroyed`) |
 | `selection` | Selection stage, when an action is selected and when "do nothing" or its reason changes | `decision` (action or `none`), `reason`, `candidates` with utility and terms or why excluded ([PIPELINE.md](PIPELINE.md#intervention-selection)) |
-| `intervention` | Selection and Behavior stages, and the game through `ReportInterventionPhase` | `name`, `phase` (`selected`, `dispatched`, `started`, `ended`, `timed_out`), more fields per phase ([PIPELINE.md](PIPELINE.md)) |
+| `intervention` | Selection and Behavior stages, and the game through `ReportInterventionPhase` | `name`, `phase` (`selected`, `dispatched`, `rejected`, `started`, `completed`, `failed`, `interrupted`, `timed_out`); final phases with `duration` (s since dispatch), `failed` / `rejected` with `detail` ([PIPELINE.md](PIPELINE.md#carrying-out-actions)) |
 
 The type names are in `AdaptiveLogRecordTypes.h`. Games may log their own types; this game logs
 `scenario` records for the phases of its test scenarios ([SCENARIOS.md](SCENARIOS.md#session-log)).

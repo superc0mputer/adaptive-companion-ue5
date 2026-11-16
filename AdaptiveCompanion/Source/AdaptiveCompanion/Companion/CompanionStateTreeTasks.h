@@ -168,14 +168,19 @@ struct FCompanionInterventionPlaceholderInstanceData
 
 	/** The intervention being carried out, reported back to the pipeline */
 	FName Intervention;
+
+	/** How the task ended, reported in ExitState: completed, failed, or interrupted if the state was left while it still ran */
+	FName Outcome;
+	FString FailReason;
 };
 
 /**
- *  Placeholder for interventions, the same for every intervention: the companion runs to the player
- *  and shows a text bark above its head. Succeeds once it has arrived and Duration has passed.
- *  Reports "started" and "ended" to the pipeline, so the session log shows the reaction.
+ *  Placeholder for an action's behavior: the companion runs to the player and shows a text bark
+ *  above its head. Succeeds once it has arrived and Duration has passed; fails if it hasn't
+ *  arrived after MaxDuration. Reports "started" and then "completed", "failed" or "interrupted"
+ *  (the state was left while it still ran) to the pipeline.
  *  The bark is debug text, so it doesn't show in Shipping builds.
- *  Replaced by real behaviors in #24.
+ *  Each action's state uses it until its real behavior exists (#20-#22).
  */
 USTRUCT(meta = (DisplayName = "Intervention Placeholder", Category = "Companion"))
 struct FCompanionInterventionPlaceholderTask : public FStateTreeTaskCommonBase
@@ -264,6 +269,82 @@ struct FCompanionHiddenFromPlayerCondition : public FStateTreeConditionCommonBas
 	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
 
 	virtual bool TestCondition(FStateTreeExecutionContext& Context) const override;
+
+#if WITH_EDITOR
+	virtual FText GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting = EStateTreeNodeFormatting::Text) const override;
+#endif // WITH_EDITOR
+};
+
+////////////////////////////////////////////////////////////////////
+
+/**
+ *  Instance data struct for the Is Current Intervention condition
+ */
+USTRUCT()
+struct FCompanionIsCurrentInterventionConditionInstanceData
+{
+	GENERATED_BODY()
+
+	/** AI Controller of the companion */
+	UPROPERTY(EditAnywhere, Category = "Context")
+	TObjectPtr<AAIController> Controller;
+
+	/** The action this state carries out, e.g. Action.NavigationHint */
+	UPROPERTY(EditAnywhere, Category = "Parameter")
+	FName Intervention;
+};
+
+/**
+ *  StateTree condition that passes if the companion was told to carry out this intervention
+ *  (ACompanionAIController::GetCurrentIntervention). Picks the child of the Intervention branch.
+ */
+USTRUCT(DisplayName = "Is Current Intervention", meta = (Category = "Companion"))
+struct FCompanionIsCurrentInterventionCondition : public FStateTreeConditionCommonBase
+{
+	GENERATED_BODY()
+
+	using FInstanceDataType = FCompanionIsCurrentInterventionConditionInstanceData;
+	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
+
+	virtual bool TestCondition(FStateTreeExecutionContext& Context) const override;
+
+#if WITH_EDITOR
+	virtual FText GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting = EStateTreeNodeFormatting::Text) const override;
+#endif // WITH_EDITOR
+};
+
+////////////////////////////////////////////////////////////////////
+
+/**
+ *  Instance data struct for the Report Intervention Failed task
+ */
+USTRUCT()
+struct FCompanionReportFailedInstanceData
+{
+	GENERATED_BODY()
+
+	/** AI Controller of the companion */
+	UPROPERTY(EditAnywhere, Category = "Context")
+	TObjectPtr<AAIController> Controller;
+
+	/** Why it failed, logged with the failed phase */
+	UPROPERTY(EditAnywhere, Category = "Parameter")
+	FString Reason = TEXT("the companion has no state for this action");
+};
+
+/**
+ *  StateTree task that reports the current intervention as failed and fails right away. Used by the
+ *  last child of the Intervention branch, which catches actions without a state of their own.
+ */
+USTRUCT(meta = (DisplayName = "Report Intervention Failed", Category = "Companion"))
+struct FCompanionReportFailedTask : public FStateTreeTaskCommonBase
+{
+	GENERATED_BODY()
+
+	using FInstanceDataType = FCompanionReportFailedInstanceData;
+	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
+
+	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
 
 #if WITH_EDITOR
 	virtual FText GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting = EStateTreeNodeFormatting::Text) const override;

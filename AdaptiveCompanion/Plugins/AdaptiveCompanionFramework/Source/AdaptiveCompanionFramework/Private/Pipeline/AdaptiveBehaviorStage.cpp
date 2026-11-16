@@ -1,9 +1,16 @@
 #include "Pipeline/AdaptiveBehaviorStage.h"
+#include "Pipeline/AdaptiveCompanionAction.h"
 #include "Pipeline/AdaptivePipelineSubsystem.h"
 #include "AdaptiveCompanionFramework.h"
 #include "Debug/AdaptiveDebugSubsystem.h"
 #include "Logging/AdaptiveLogRecordTypes.h"
 #include "Logging/AdaptiveLogSubsystem.h"
+
+bool AdaptiveInterventionPhase::IsFinal(FName Phase)
+{
+	static const TSet<FName> FinalPhases = { Completed, Failed, Interrupted, Rejected, TimedOut, TEXT("ended") };
+	return FinalPhases.Contains(Phase);
+}
 
 void UAdaptiveBehaviorStage::Update(FAdaptivePipelineFrame& Frame)
 {
@@ -14,30 +21,33 @@ void UAdaptiveBehaviorStage::Update(FAdaptivePipelineFrame& Frame)
 
 	Running = Frame.Intervention;
 	RunningSince = Frame.Time;
+	DispatchTimes.Add(Frame.Intervention, Frame.Time);
 
-	UAdaptivePipelineSubsystem* Pipeline = GetPipeline();
-	if (!Pipeline)
+	const FAdaptiveActionState* Action = Frame.Actions.FindByPredicate([&Frame](const FAdaptiveActionState& State) { return State.Name == Frame.Intervention; });
+	UObject* Handler = Action ? Action->Handler : nullptr;
+
+	// logged before the handler is called, so a phase it reports synchronously comes after it
+	LogPhase(Frame.Intervention, AdaptiveInterventionPhase::Dispatched);
+
+	const bool bAccepted = Handler && IsValid(Handler) && Handler->GetClass()->ImplementsInterface(UAdaptiveCompanionActionHandler::StaticClass())
+		&& IAdaptiveCompanionActionHandler::Execute_PerformAction(Handler, Action->Action);
+	if (!bAccepted)
 	{
-		return;
+		ReportPhase(Frame.Intervention, AdaptiveInterventionPhase::Rejected, Handler ? TEXT("the handler refused") : TEXT("no handler"));
 	}
 
-	const int32 Receivers = Pipeline->OnIntervention.GetAllObjects().Num();
-	if (Receivers == 0)
+	// a notification for anyone else interested; carrying it out is the handler's job
+	if (UAdaptivePipelineSubsystem* Pipeline = GetPipeline())
 	{
-		UE_LOG(LogAdaptiveCompanionFramework, Warning, TEXT("Intervention '%s' selected, but the game doesn't listen to OnIntervention."), *Frame.Intervention.ToString());
+		Pipeline->OnIntervention.Broadcast(Frame.Intervention);
 	}
-
-	// logged before the broadcast, so a phase the game reports synchronously comes after it
-	LogPhase(Frame.Intervention, TEXT("dispatched"), Receivers);
-	Pipeline->OnIntervention.Broadcast(Frame.Intervention);
 }
 
-void UAdaptiveBehaviorStage::ReportPhase(FName Intervention, FName Phase)
+void UAdaptiveBehaviorStage::ReportPhase(FName Intervention, FName Phase, const FString& Detail)
 {
-	LogPhase(Intervention, Phase.ToString());
+	LogPhase(Intervention, Phase, Detail);
 
-	static const TSet<FName> FinalPhases = { TEXT("ended"), TEXT("completed"), TEXT("failed"), TEXT("interrupted") };
-	if (Intervention == Running && FinalPhases.Contains(Phase))
+	if (Intervention == Running && AdaptiveInterventionPhase::IsFinal(Phase))
 	{
 		Running = NAME_None;
 	}
@@ -47,19 +57,31 @@ FName UAdaptiveBehaviorStage::UpdateRunning(double Now)
 {
 	if (!Running.IsNone() && Now - RunningSince >= MaxInterventionDuration)
 	{
-		LogPhase(Running, TEXT("timed_out"));
-		Running = NAME_None;
+		ReportPhase(Running, AdaptiveInterventionPhase::TimedOut, TEXT("the game didn't report an end"));
 	}
 	return Running;
 }
 
-void UAdaptiveBehaviorStage::LogPhase(FName Intervention, const FString& Phase, int32 Receivers) const
+void UAdaptiveBehaviorStage::LogPhase(FName Intervention, FName Phase, const FString& Detail, int32 Receivers) const
 {
+	const UAdaptivePipelineSubsystem* Pipeline = GetPipeline();
+	const double Now = Pipeline ? Pipeline->GetTime() : 0.0;
+	const double* Dispatched = DispatchTimes.Find(Intervention);
+	const bool bFinal = AdaptiveInterventionPhase::IsFinal(Phase);
+
 	if (UAdaptiveLogSubsystem* Log = GetLog())
 	{
 		TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
 		Payload->SetStringField(TEXT("name"), Intervention.ToString());
-		Payload->SetStringField(TEXT("phase"), Phase);
+		Payload->SetStringField(TEXT("phase"), Phase.ToString());
+		if (!Detail.IsEmpty())
+		{
+			Payload->SetStringField(TEXT("detail"), Detail);
+		}
+		if (bFinal && Dispatched)
+		{
+			Payload->SetNumberField(TEXT("duration"), FMath::RoundToDouble((Now - *Dispatched) * 100.0) / 100.0);
+		}
 		if (Receivers != INDEX_NONE)
 		{
 			Payload->SetNumberField(TEXT("receivers"), Receivers);
@@ -69,7 +91,15 @@ void UAdaptiveBehaviorStage::LogPhase(FName Intervention, const FString& Phase, 
 
 	if (UAdaptiveDebugSubsystem* Debug = GetDebug())
 	{
-		const UAdaptivePipelineSubsystem* Pipeline = GetPipeline();
-		Debug->SetText(EAdaptiveDebugSection::Behavior, Intervention.ToString(), FString::Printf(TEXT("%s at %.1f s"), *Phase, Pipeline ? Pipeline->GetTime() : 0.0));
+		FString Text = FString::Printf(TEXT("%s at %.1f s"), *Phase.ToString(), Now);
+		if (bFinal && Dispatched)
+		{
+			Text += FString::Printf(TEXT(", after %.1f s"), Now - *Dispatched);
+		}
+		if (!Detail.IsEmpty())
+		{
+			Text += TEXT(": ") + Detail;
+		}
+		Debug->SetText(EAdaptiveDebugSection::Behavior, Intervention.ToString(), Text);
 	}
 }

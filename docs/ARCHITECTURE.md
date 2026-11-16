@@ -64,7 +64,7 @@ Game-specific assets live in `Content/Companion/`, which is allow-listed in `.gi
 | `UAdaptiveTelemetryStage`, `UAdaptiveFeatureStage`, `UAdaptiveNeedStage`, `UAdaptiveContextStage`, `UAdaptiveSelectionStage`, `UAdaptiveBehaviorStage` | The six stages. Features computes the features defined in the config asset; Need scores the need dimensions with its estimator, smooths them and maps them to levels with hysteresis; Selection rates the available actions with the exposé's utility and picks the best or nothing; Behavior hands it to the game and tracks it while it runs; Context holds the contexts the game reports and runs before Need |
 | `FAdaptivePipelineFrame` | Data passed through the stages in one update |
 | `FAdaptiveFeatureDefinition`, `AdaptiveFeatureMath` | One feature's signal, aggregation, window and normalization; the aggregations and normalization as plain functions |
-| `UAdaptiveCompanionAction`, `IAdaptiveCompanionActionHandler` | A companion action as a config asset (relevance per need, contexts, suitability, cost, intrusiveness, cooldown); the interface the game object that carries actions out implements (`CheckAction`) |
+| `UAdaptiveCompanionAction`, `IAdaptiveCompanionActionHandler` | A companion action as a config asset (relevance per need, contexts, suitability, cost, intrusiveness, cooldown); the interface the game object that carries actions out implements (`CheckAction`, `PerformAction`) |
 | `UAdaptiveNeedEstimator`, `UAdaptiveRuleNeedEstimator` | Interface that turns features into one score per need dimension, picked in the config asset; the rule-based implementation (#14) |
 | `FAdaptiveNeedDimension`, `FAdaptiveNeedRule`, `FAdaptiveNeedLevelSettings`, `AdaptiveNeedMath` | A dimension's rules and context gates; smoothing half-lives and level thresholds; rule evaluation (weight × min), noisy-OR, smoothing and level transitions as plain functions |
 | `UAdaptivePipelineConfig` | Data asset with the framework settings: update rate and the class and parameters of each stage. This game's instance is `Content/Companion/DA_PipelineConfig` |
@@ -161,9 +161,10 @@ assets in `Content/Companion/`.
 |---|---|
 | `ACompanionCharacter` → `BP_Companion` | The companion pawn. The Blueprint only sets mesh (`SKM_Quinn_Simple`), Anim Blueprint (`ABP_Unarmed`), StateTree and the companion's actions |
 | `Content/Companion/Actions/DA_Action_*`, `CompanionActions.h` | The companion's actions (`UAdaptiveCompanionAction` assets) and their names ([PIPELINE.md](PIPELINE.md#companion-actions)) |
-| `ACompanionAIController` | Runs the StateTree assigned on the possessed companion (`UStateTreeAIComponent`) and forwards events to it. Listens to the pipeline's `OnIntervention` and starts the Intervention branch. Registers the companion's actions with the pipeline while it controls the companion and answers whether each is possible (`IAdaptiveCompanionActionHandler`) |
+| `ACompanionAIController` | Runs the StateTree assigned on the possessed companion (`UStateTreeAIComponent`) and forwards events to it. Registers the companion's actions with the pipeline while it controls the companion, answers whether each is possible and starts the selected one's state in the Intervention branch (`IAdaptiveCompanionActionHandler`) |
 | `ST_Companion` | StateTree (schema *StateTree AI Component*) that decides what the companion does |
-| `CompanionStateTreeTasks` | C++ StateTree nodes: tasks *Follow Player*, *Reposition Near Player*, *Intervention Placeholder*; conditions *Player Further Than*, *Companion Hidden From Player* |
+| `CompanionStateTreeTasks` | C++ StateTree nodes: tasks *Follow Player*, *Reposition Near Player*, *Intervention Placeholder*, *Report Intervention Failed*; conditions *Player Further Than*, *Companion Hidden From Player*, *Is Current Intervention* |
+| `UCompanionStateTreeCommandlet` | `-run=CompanionStateTree`: adds a state per companion action to `ST_Companion`'s Intervention branch (editor only) |
 | `CompanionVisibility` | `IsVisibleToPlayer`: field of view + line of sight test against the player's camera |
 | `UCompanionSpawnSubsystem` | Spawns the companion next to the player in every game level that has none |
 | `UCompanionNavBoundsSubsystem` | Adds a NavMeshBoundsVolume around all walkable geometry if the level's own volumes don't cover it |
@@ -184,8 +185,14 @@ Root                       On Event Companion.Event.Intervention → Interventio
 │  └─ Reposition           Enter condition: Companion Hidden From Player
 │                          Reposition Near Player
 │                            On State Completed → Follow
-└─ Intervention            Intervention Placeholder
-                             On State Completed → Default
+└─ Intervention              On State Completed → Default, On State Failed → Default
+   ├─ NavigationHint        Enter condition: Is Current Intervention Action.NavigationHint
+   │                        Intervention Placeholder        (until #20)
+   ├─ ThreatCallout         Enter condition: Is Current Intervention Action.ThreatCallout
+   │                        Intervention Placeholder        (until #21)
+   ├─ DrawAggro             Enter condition: Is Current Intervention Action.DrawAggro
+   │                        Intervention Placeholder        (until #22)
+   └─ UnknownAction         Report Intervention Failed      (catches actions without a state)
 ```
 
 - **Default** is the companion's normal behavior: follow the player at a distance, run when far
@@ -195,14 +202,24 @@ Root                       On Event Companion.Event.Intervention → Interventio
   appears, the same rule Elizabeth uses in *BioShock Infinite* (she is teleported when she falls
   behind "if it would not be noticeable to the player", GDC postmortem). If every spot is visible,
   the companion keeps following and tries again later.
-- **Intervention** is a placeholder branch. Any event with the tag `Companion.Event.Intervention`
-  interrupts Default from the Root transition. `ACompanionAIController` sends it whenever the
-  pipeline selects an intervention, and remembers which one. For now every intervention runs the
-  same *Intervention Placeholder* task: the companion runs to the player (750 cm/s, up to 6 s),
-  shows a text bark above its head ("Hang in there, I'm coming!" and the selected action's name,
-  debug text, so not in Shipping) and reports `started` / `ended` to the pipeline. Real behaviors per
-  action come in #19–#22.
-  `Companion.TriggerIntervention` starts it without the pipeline for testing.
+- **Intervention** has one child state per companion action (#19). Any event with the tag
+  `Companion.Event.Intervention` interrupts Default from the Root transition.
+  `ACompanionAIController::PerformAction` (called by the pipeline for the selected action) stores
+  the action's name and sends that event; the children are tried in order, and *Is Current
+  Intervention* lets in the one for that name. *UnknownAction*, the last child, reports actions
+  without a state as `failed`. When a child completes or fails, the branch goes back to Default.
+- Until their behaviors exist (#20–#22), the action states run the *Intervention Placeholder* task:
+  the companion runs to the player (750 cm/s), shows a text bark above its head ("Hang in there,
+  I'm coming!" and the action's name; debug text, so not in Shipping) and reports `started`, then
+  `completed` once it arrived and 2 s passed, `failed` if it hasn't arrived after 6 s, or
+  `interrupted` if the state is left while it still runs.
+- The action states are generated by the commandlet `CompanionStateTree` (editor closed):
+  `UnrealEditor-Cmd AdaptiveCompanion.uproject -run=CompanionStateTree`. It adds a state for every
+  action on the companion class that doesn't have one yet, keeps *UnknownAction* last, moves the
+  branch's own tasks away, compiles and saves `ST_Companion`. Existing states are left alone, so
+  behaviors added to them in the editor survive; a new action is an asset plus one run.
+- `Companion.TriggerIntervention [Action]` starts an action's state without the pipeline for
+  testing.
 
 ### Spawning and navigation in the template levels
 

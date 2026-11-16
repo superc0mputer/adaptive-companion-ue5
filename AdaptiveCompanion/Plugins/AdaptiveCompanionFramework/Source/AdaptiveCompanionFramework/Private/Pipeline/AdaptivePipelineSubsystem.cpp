@@ -175,11 +175,11 @@ bool UAdaptivePipelineSubsystem::GetCurrentObjective(FName& Name, FVector& Locat
 	return !Name.IsNone();
 }
 
-void UAdaptivePipelineSubsystem::ReportInterventionPhase(FName Intervention, FName Phase)
+void UAdaptivePipelineSubsystem::ReportInterventionPhase(FName Intervention, FName Phase, const FString& Detail)
 {
 	if (Behavior)
 	{
-		Behavior->ReportPhase(Intervention, Phase);
+		Behavior->ReportPhase(Intervention, Phase, Detail);
 	}
 }
 

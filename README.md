@@ -95,6 +95,12 @@ current cost and intrusiveness (which counts less the more urgent the need). It 
 no need is elevated, help is still running, the last help was under 5 s ago, nothing fits, or the
 best action isn't good enough, and logs why. Details: [docs/PIPELINE.md](docs/PIPELINE.md#intervention-selection).
 
+The selected action goes to the object that registered it, here the companion's AI controller,
+which starts that action's own state in the companion's StateTree. The companion reports back
+`started`, then `completed`, `failed` (with a reason) or `interrupted`, and returns to following
+the player; every phase is logged with its time. A commandlet adds a StateTree state for every new
+action. Details: [docs/PIPELINE.md](docs/PIPELINE.md#carrying-out-actions).
+
 For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
 where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
 written to the session log. `Lvl_NavigationScenario` is a maze with four objectives in a row,
