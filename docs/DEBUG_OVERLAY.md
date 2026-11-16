@@ -30,7 +30,7 @@ One section per pipeline stage, in pipeline order. A section without values show
 | 2 Features | Every feature as a bar, in the order of the config asset (#13) |
 | 3 Assistance Need | Every need dimension's smoothed score as a bar, plus `<dimension> why`: level, raw score and strongest rule, or *inactive in this context* (#14, #15) |
 | 4 Context | Every context the game reported, `active` or `inactive` and since when, e.g. `Context.Combat  active since 10.9 s`; the current objective; the test scenario's phase; every companion action with its availability, e.g. `Action.ThreatCallout  unavailable: no enemy out of view` (#17) |
-| 5 Intervention Selection | Last selected intervention and when (candidates with utilities and cooldowns in #18) |
+| 5 Intervention Selection | The decision and its reason, every action's utility and terms or why it is no candidate (e.g. `cooldown, 14 s left`), the last selected action and when (#18) |
 | 6 Behavior | Latest phase of each intervention and when (#19) |
 
 ## Writing values

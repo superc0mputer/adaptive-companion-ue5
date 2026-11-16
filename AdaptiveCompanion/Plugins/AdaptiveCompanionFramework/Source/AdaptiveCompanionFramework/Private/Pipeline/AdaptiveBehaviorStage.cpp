@@ -7,8 +7,16 @@
 
 void UAdaptiveBehaviorStage::Update(FAdaptivePipelineFrame& Frame)
 {
+	if (Frame.Intervention.IsNone())
+	{
+		return;
+	}
+
+	Running = Frame.Intervention;
+	RunningSince = Frame.Time;
+
 	UAdaptivePipelineSubsystem* Pipeline = GetPipeline();
-	if (Frame.Intervention.IsNone() || !Pipeline)
+	if (!Pipeline)
 	{
 		return;
 	}
@@ -27,6 +35,22 @@ void UAdaptiveBehaviorStage::Update(FAdaptivePipelineFrame& Frame)
 void UAdaptiveBehaviorStage::ReportPhase(FName Intervention, FName Phase)
 {
 	LogPhase(Intervention, Phase.ToString());
+
+	static const TSet<FName> FinalPhases = { TEXT("ended"), TEXT("completed"), TEXT("failed"), TEXT("interrupted") };
+	if (Intervention == Running && FinalPhases.Contains(Phase))
+	{
+		Running = NAME_None;
+	}
+}
+
+FName UAdaptiveBehaviorStage::UpdateRunning(double Now)
+{
+	if (!Running.IsNone() && Now - RunningSince >= MaxInterventionDuration)
+	{
+		LogPhase(Running, TEXT("timed_out"));
+		Running = NAME_None;
+	}
+	return Running;
 }
 
 void UAdaptiveBehaviorStage::LogPhase(FName Intervention, const FString& Phase, int32 Receivers) const

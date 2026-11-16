@@ -194,6 +194,7 @@ void UAdaptivePipelineSubsystem::Update()
 	Frame.UpdateIndex = UpdateCount;
 	Frame.Time = Now;
 	Frame.DeltaTime = UpdateCount > 0 ? Now - LastUpdateTime : 0.0;
+	Frame.RunningIntervention = Behavior ? Behavior->UpdateRunning(Now) : NAME_None;
 
 	for (UAdaptivePipelineStage* Stage : Stages)
 	{

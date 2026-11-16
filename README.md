@@ -89,6 +89,12 @@ drawing an enemy's attention. The companion registers them with the framework, w
 update whether each one is possible (right context, and the game says yes, e.g. an enemy is out
 of view). Details: [docs/PIPELINE.md](docs/PIPELINE.md#companion-actions).
 
+From the available actions the framework picks the best one with the utility from the exposé:
+relevance to the elevated need times its score, plus suitability, minus a repetition penalty, the
+current cost and intrusiveness (which counts less the more urgent the need). It does nothing when
+no need is elevated, help is still running, the last help was under 5 s ago, nothing fits, or the
+best action isn't good enough, and logs why. Details: [docs/PIPELINE.md](docs/PIPELINE.md#intervention-selection).
+
 For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
 where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
 written to the session log. `Lvl_NavigationScenario` is a maze with four objectives in a row,

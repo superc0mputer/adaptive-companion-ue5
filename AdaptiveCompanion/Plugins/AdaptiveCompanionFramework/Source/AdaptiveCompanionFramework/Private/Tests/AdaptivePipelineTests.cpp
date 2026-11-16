@@ -234,37 +234,6 @@ bool FAdaptivePipelineObjectiveTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptivePipelineSelectionTest, "AdaptiveCompanion.Pipeline.Selection",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
-
-bool FAdaptivePipelineSelectionTest::RunTest(const FString& Parameters)
-{
-	UAdaptiveSelectionStage* Selection = NewObject<UAdaptiveSelectionStage>();
-
-	auto Select = [&](EAdaptiveNeedLevel Level)
-	{
-		FAdaptivePipelineFrame Frame;
-		FAdaptiveNeedState State;
-		State.Score = 0.7;
-		State.Level = Level;
-		Frame.Needs.Add(TEXT("Combat"), State);
-		Selection->Update(Frame);
-		return Frame.Intervention;
-	};
-
-	TestEqual(TEXT("Selected when the need becomes elevated"), Select(EAdaptiveNeedLevel::Elevated), FName(TEXT("Intervention.Combat.Placeholder")));
-	TestTrue(TEXT("Not again while it stays elevated"), Select(EAdaptiveNeedLevel::Elevated).IsNone());
-	TestTrue(TEXT("Not again when it rises to high"), Select(EAdaptiveNeedLevel::High).IsNone());
-	TestTrue(TEXT("Not when it goes back to normal"), Select(EAdaptiveNeedLevel::Normal).IsNone());
-	TestEqual(TEXT("Again after it was normal, also straight to high"), Select(EAdaptiveNeedLevel::High), FName(TEXT("Intervention.Combat.Placeholder")));
-
-	FAdaptivePipelineFrame Empty;
-	Selection->Update(Empty);
-	TestTrue(TEXT("Nothing without the need"), Empty.Intervention.IsNone());
-
-	return true;
-}
-
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptivePipelineConfigTest, "AdaptiveCompanion.Pipeline.Config",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
 

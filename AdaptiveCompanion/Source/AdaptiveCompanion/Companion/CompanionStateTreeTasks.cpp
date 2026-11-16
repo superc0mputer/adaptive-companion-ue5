@@ -189,8 +189,10 @@ EStateTreeRunStatus FCompanionInterventionPlaceholderTask::EnterState(FStateTree
 		Controller->MoveToActor(Player, InstanceData.AcceptanceRadius, true, true, false, nullptr, true);
 	}
 
+	// the selected action's name below the bark, so it is visible which one ran until the real behaviors exist (#20-#22)
+	const FString Text = FString::Printf(TEXT("%s\n(%s)"), *InstanceData.Bark, *InstanceData.Intervention.ToString());
 	// attached to the companion, so it moves along
-	DrawDebugString(Companion->GetWorld(), FVector(0.0f, 0.0f, 120.0f), InstanceData.Bark, Companion, FColor::White, InstanceData.BarkDuration, true, 1.5f);
+	DrawDebugString(Companion->GetWorld(), FVector(0.0f, 0.0f, 120.0f), Text, Companion, FColor::White, InstanceData.BarkDuration, true, 1.5f);
 
 	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(Companion))
 	{
