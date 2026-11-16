@@ -1,0 +1,16 @@
+{
+  "tolerance": 2.0,
+  "labels": [
+    {
+      "from": 10.64,
+      "to": 47.41,
+      "needs": [
+        "Disorientation"
+      ],
+      "actions": [
+        "Action.NavigationHint"
+      ],
+      "note": "standing, looking around, ignoring the hint"
+    }
+  ]
+}

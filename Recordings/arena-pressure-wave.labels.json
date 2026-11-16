@@ -1,0 +1,17 @@
+{
+  "tolerance": 2.0,
+  "labels": [
+    {
+      "from": 17.47,
+      "to": 55.4,
+      "needs": [
+        "Threat"
+      ],
+      "actions": [
+        "Action.ThreatCallout",
+        "Action.DrawAggro"
+      ],
+      "note": "four enemies on a passive player"
+    }
+  ]
+}
