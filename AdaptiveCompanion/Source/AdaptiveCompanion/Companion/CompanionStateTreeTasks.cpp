@@ -2,6 +2,8 @@
 #include "CompanionAIController.h"
 #include "CompanionCharacter.h"
 #include "CompanionVisibility.h"
+#include "CompanionPathTrail.h"
+#include "NavigationPath.h"
 #include "StateTreeExecutionContext.h"
 #include "AIController.h"
 #include "Navigation/PathFollowingComponent.h"
@@ -251,6 +253,213 @@ void FCompanionInterventionPlaceholderTask::ExitState(FStateTreeExecutionContext
 FText FCompanionInterventionPlaceholderTask::GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting /*= EStateTreeNodeFormatting::Text*/) const
 {
 	return FText::FromString("<b>Intervention Placeholder</b>");
+}
+#endif // WITH_EDITOR
+
+////////////////////////////////////////////////////////////////////
+
+namespace
+{
+	/** Navmesh path points from From to To; false without a full path */
+	bool FindFullPath(UWorld* World, const FVector& From, const FVector& To, TArray<FVector>& OutPoints)
+	{
+		const UNavigationPath* Path = UNavigationSystemV1::FindPathToLocationSynchronously(World, From, To);
+		if (!Path || !Path->IsValid() || Path->IsPartial() || Path->PathPoints.Num() < 2)
+		{
+			return false;
+		}
+		OutPoints = Path->PathPoints;
+		return true;
+	}
+
+	float PathLength(const TArray<FVector>& Points)
+	{
+		float Length = 0.0f;
+		for (int32 i = 1; i < Points.Num(); ++i)
+		{
+			Length += FVector::Dist(Points[i - 1], Points[i]);
+		}
+		return Length;
+	}
+
+	/** The point Distance along the path, or its end if the path is shorter */
+	FVector PointAlongPath(const TArray<FVector>& Points, float Distance)
+	{
+		for (int32 i = 1; i < Points.Num(); ++i)
+		{
+			const float SegmentLength = FVector::Dist(Points[i - 1], Points[i]);
+			if (Distance <= SegmentLength)
+			{
+				return FMath::Lerp(Points[i - 1], Points[i], Distance / FMath::Max(SegmentLength, KINDA_SMALL_NUMBER));
+			}
+			Distance -= SegmentLength;
+		}
+		return Points.Last();
+	}
+}
+
+EStateTreeRunStatus FCompanionNavigationHintTask::EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const
+{
+	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+	InstanceData.ElapsedTime = 0.0f;
+	InstanceData.TimeSinceProgressCheck = 0.0f;
+	InstanceData.Outcome = NAME_None;
+	InstanceData.Detail.Reset();
+	InstanceData.Trail.Reset();
+
+	ACompanionAIController* Controller = Cast<ACompanionAIController>(InstanceData.Controller);
+	ACharacter* Companion = Controller ? Controller->GetPawn<ACharacter>() : nullptr;
+	InstanceData.Intervention = Controller ? Controller->GetCurrentIntervention() : NAME_None;
+	const APawn* Player = UGameplayStatics::GetPlayerPawn(Controller, 0);
+	UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(Controller);
+
+	auto Fail = [&InstanceData](const TCHAR* Reason)
+	{
+		InstanceData.Outcome = AdaptiveInterventionPhase::Failed;
+		InstanceData.Detail = Reason;
+		return EStateTreeRunStatus::Failed;
+	};
+
+	if (!Companion || !Player)
+	{
+		return Fail(TEXT("no companion or player"));
+	}
+	if (!Pipeline || !Pipeline->GetCurrentObjective(InstanceData.Objective, InstanceData.ObjectiveLocation))
+	{
+		return Fail(TEXT("no objective"));
+	}
+
+	UWorld* World = Companion->GetWorld();
+	TArray<FVector> PathPoints;
+	if (!FindFullPath(World, Player->GetActorLocation(), InstanceData.ObjectiveLocation, PathPoints))
+	{
+		return Fail(TEXT("no path to the objective"));
+	}
+	InstanceData.StartPathLength = PathLength(PathPoints);
+
+	// the trail on the floor, from the player along the way
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	if (ACompanionPathTrail* Trail = World->SpawnActor<ACompanionPathTrail>(ACompanionPathTrail::StaticClass(), FTransform::Identity, SpawnParams))
+	{
+		Trail->ShowPath(PathPoints, InstanceData.TrailLength);
+		InstanceData.Trail = Trail;
+	}
+
+	// the companion runs ahead to a spot on the same path and then faces the way on
+	const FVector LeadSpot = PointAlongPath(PathPoints, InstanceData.LeadDistance);
+	InstanceData.LookTarget = PointAlongPath(PathPoints, InstanceData.LeadDistance + 300.0f);
+	if (InstanceData.LookTarget.Equals(LeadSpot, 10.0f))
+	{
+		// the spot is the objective itself; face away from the player
+		InstanceData.LookTarget = LeadSpot + (LeadSpot - Player->GetActorLocation()).GetSafeNormal2D() * 300.0f;
+	}
+
+	Controller->StopMovement();
+	Companion->GetCharacterMovement()->MaxWalkSpeed = InstanceData.RunSpeed;
+	Controller->MoveToLocation(LeadSpot, 50.0f, false, true, false, true, nullptr, false);
+
+	DrawDebugString(World, FVector(0.0f, 0.0f, 120.0f), InstanceData.Bark, Companion, FColor::White, InstanceData.BarkDuration, true, 1.5f);
+
+	Pipeline->ReportInterventionPhase(InstanceData.Intervention, AdaptiveInterventionPhase::Started);
+	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion navigation hint to %s started: path %.0f cm, trail of %d discs."),
+		*InstanceData.Objective.ToString(), InstanceData.StartPathLength, InstanceData.Trail.IsValid() ? InstanceData.Trail->GetDiscCount() : 0);
+	return EStateTreeRunStatus::Running;
+}
+
+EStateTreeRunStatus FCompanionNavigationHintTask::Tick(FStateTreeExecutionContext& Context, const float DeltaTime) const
+{
+	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+	InstanceData.ElapsedTime += DeltaTime;
+	InstanceData.TimeSinceProgressCheck += DeltaTime;
+
+	AAIController* Controller = InstanceData.Controller;
+	ACharacter* Companion = Controller ? Controller->GetPawn<ACharacter>() : nullptr;
+	const APawn* Player = UGameplayStatics::GetPlayerPawn(Controller, 0);
+	const UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(Controller);
+	if (!Companion)
+	{
+		InstanceData.Outcome = AdaptiveInterventionPhase::Failed;
+		InstanceData.Detail = TEXT("no companion");
+		return EStateTreeRunStatus::Failed;
+	}
+
+	// once at its spot, turn to face the way on
+	if (Controller->GetMoveStatus() != EPathFollowingStatus::Moving)
+	{
+		const FVector ToTarget = (InstanceData.LookTarget - Companion->GetActorLocation()).GetSafeNormal2D();
+		if (!ToTarget.IsNearlyZero())
+		{
+			Companion->SetActorRotation(FMath::RInterpTo(Companion->GetActorRotation(), ToTarget.Rotation(), DeltaTime, 8.0f));
+		}
+	}
+
+	// the objective was reached (or another one became current): the hint is done right away
+	FName Objective;
+	FVector ObjectiveLocation;
+	if (!Pipeline || !Pipeline->GetCurrentObjective(Objective, ObjectiveLocation) || Objective != InstanceData.Objective)
+	{
+		InstanceData.Outcome = AdaptiveInterventionPhase::Completed;
+		InstanceData.Detail = TEXT("objective reached");
+		return EStateTreeRunStatus::Succeeded;
+	}
+
+	if (Player && InstanceData.TimeSinceProgressCheck >= InstanceData.ProgressCheckInterval)
+	{
+		InstanceData.TimeSinceProgressCheck = 0.0f;
+
+		// path length rather than straight distance: in a maze the right way often leads away from the objective first
+		TArray<FVector> PathPoints;
+		if (FindFullPath(Companion->GetWorld(), Player->GetActorLocation(), InstanceData.ObjectiveLocation, PathPoints)
+			&& InstanceData.StartPathLength - PathLength(PathPoints) >= InstanceData.FollowDistance
+			&& InstanceData.ElapsedTime >= InstanceData.MinDuration)
+		{
+			InstanceData.Outcome = AdaptiveInterventionPhase::Completed;
+			InstanceData.Detail = TEXT("player followed");
+			return EStateTreeRunStatus::Succeeded;
+		}
+	}
+
+	if (InstanceData.ElapsedTime >= InstanceData.MaxDuration)
+	{
+		InstanceData.Outcome = AdaptiveInterventionPhase::Completed;
+		InstanceData.Detail = TEXT("player didn't follow");
+		return EStateTreeRunStatus::Succeeded;
+	}
+	return EStateTreeRunStatus::Running;
+}
+
+void FCompanionNavigationHintTask::ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const
+{
+	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+
+	if (ACompanionPathTrail* Trail = InstanceData.Trail.Get())
+	{
+		Trail->Destroy();
+	}
+	InstanceData.Trail.Reset();
+
+	if (InstanceData.Controller)
+	{
+		InstanceData.Controller->StopMovement();
+		ResetCompanionSpeed(InstanceData.Controller->GetPawn());
+	}
+
+	const FName Phase = InstanceData.Outcome.IsNone() ? AdaptiveInterventionPhase::Interrupted : InstanceData.Outcome;
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(InstanceData.Controller))
+	{
+		Pipeline->ReportInterventionPhase(InstanceData.Intervention, Phase, InstanceData.Detail);
+	}
+
+	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion navigation hint %s after %.1f s%s%s."), *Phase.ToString(), InstanceData.ElapsedTime,
+		InstanceData.Detail.IsEmpty() ? TEXT("") : TEXT(": "), *InstanceData.Detail);
+}
+
+#if WITH_EDITOR
+FText FCompanionNavigationHintTask::GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting /*= EStateTreeNodeFormatting::Text*/) const
+{
+	const FInstanceDataType* InstanceData = InstanceDataView.GetPtr<FInstanceDataType>();
+	return FText::FromString(FString::Printf(TEXT("<b>Navigation Hint</b> %.0f cm ahead"), InstanceData ? InstanceData->LeadDistance : 0.0f));
 }
 #endif // WITH_EDITOR
 

@@ -101,6 +101,11 @@ which starts that action's own state in the companion's StateTree. The companion
 the player; every phase is logged with its time. A commandlet adds a StateTree state for every new
 action. Details: [docs/PIPELINE.md](docs/PIPELINE.md#carrying-out-actions).
 
+The navigation hint is the first real behavior: a trail of discs appears on the floor along the
+path to the current objective, and the companion runs ahead on it and faces the way on. It ends
+once the player follows, reaches the objective, or after 15 s, and the log says which. Details:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#navigation-hint).
+
 For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
 where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
 written to the session log. `Lvl_NavigationScenario` is a maze with four objectives in a row,
