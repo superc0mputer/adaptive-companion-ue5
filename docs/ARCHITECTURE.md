@@ -114,7 +114,7 @@ from a subsystem in `Source/AdaptiveCompanion/Telemetry/`.
 | Class | Role |
 |---|---|
 | `ACombatCharacter` | Reports `Combat.DamageTaken`, `Player.Health`, `Combat.AttackStarted`, `Combat.HitDealt` and `Combat.PlayerDied` |
-| `ACombatEnemy` | Reports `Combat.EnemyKilled` |
+| `ACombatEnemy` | Reports `Combat.EnemyKilled`. Can be taunted by the companion (`SetTauntTarget`, #22) |
 | `UCombatTelemetrySubsystem` | World subsystem, runs in every game level without placing anything. Reports `Combat.EnemiesNearby` and `Combat.NearestEnemyDistance` at the check interval of `UGameplayContextSettings`, within its combat radius |
 
 ## Navigation telemetry (game module)
@@ -163,7 +163,7 @@ assets in `Content/Companion/`.
 | `Content/Companion/Actions/DA_Action_*`, `CompanionActions.h` | The companion's actions (`UAdaptiveCompanionAction` assets) and their names ([PIPELINE.md](PIPELINE.md#companion-actions)) |
 | `ACompanionAIController` | Runs the StateTree assigned on the possessed companion (`UStateTreeAIComponent`) and forwards events to it. Registers the companion's actions with the pipeline while it controls the companion, answers whether each is possible and starts the selected one's state in the Intervention branch (`IAdaptiveCompanionActionHandler`) |
 | `ST_Companion` | StateTree (schema *StateTree AI Component*) that decides what the companion does |
-| `CompanionStateTreeTasks` | C++ StateTree nodes: tasks *Follow Player*, *Reposition Near Player*, *Navigation Hint*, *Threat Callout*, *Intervention Placeholder*, *Report Intervention Failed*; conditions *Player Further Than*, *Companion Hidden From Player*, *Is Current Intervention* |
+| `CompanionStateTreeTasks` | C++ StateTree nodes: tasks *Follow Player*, *Reposition Near Player*, *Navigation Hint*, *Threat Callout*, *Draw Aggro*, *Intervention Placeholder*, *Report Intervention Failed*; conditions *Player Further Than*, *Companion Hidden From Player*, *Is Current Intervention* |
 | `ACompanionPathTrail` | The navigation hint's trail of cyan discs on the floor along a path; spawned and destroyed by the *Navigation Hint* task |
 | `SCompanionThreatIndicator`, `ACompanionThreatMarker` | The threat call-out's cues: the red arrow at the screen edge (Slate, added to the game viewport) and the red cone above the enemy; created and removed by the *Threat Callout* task |
 | `UCompanionStateTreeCommandlet` | `-run=CompanionStateTree`: adds a state per companion action to `ST_Companion`'s Intervention branch and gives it the action's behavior task (editor only) |
@@ -193,7 +193,7 @@ Root                       On Event Companion.Event.Intervention → Interventio
    ├─ ThreatCallout         Enter condition: Is Current Intervention Action.ThreatCallout
    │                        Threat Callout                  (#21)
    ├─ DrawAggro             Enter condition: Is Current Intervention Action.DrawAggro
-   │                        Intervention Placeholder        (until #22)
+   │                        Draw Aggro                      (#22)
    └─ UnknownAction         Report Intervention Failed      (catches actions without a state)
 ```
 
@@ -210,9 +210,9 @@ Root                       On Event Companion.Event.Intervention → Interventio
   the action's name and sends that event; the children are tried in order, and *Is Current
   Intervention* lets in the one for that name. *UnknownAction*, the last child, reports actions
   without a state as `failed`. When a child completes or fails, the branch goes back to Default.
-- *NavigationHint* runs the *Navigation Hint* task ([below](#navigation-hint)), *ThreatCallout* the
-  *Threat Callout* task ([below](#threat-call-out)). Until its behavior exists (#22), *DrawAggro*
-  runs the *Intervention Placeholder* task:
+- Each action state runs its behavior task: *Navigation Hint* ([below](#navigation-hint)),
+  *Threat Callout* ([below](#threat-call-out)) and *Draw Aggro* ([below](#draw-aggro)). A new
+  action gets the *Intervention Placeholder* task from the commandlet until its behavior exists:
   the companion runs to the player (750 cm/s), shows a text bark above its head ("Hang in there,
   I'm coming!" and the action's name; debug text, so not in Shipping) and reports `started`, then
   `completed` once it arrived and 2 s passed, `failed` if it hasn't arrived after 6 s, or
@@ -222,7 +222,7 @@ Root                       On Event Companion.Event.Intervention → Interventio
   action on the companion class that doesn't have one yet, with the action's behavior task (or the
   placeholder if it has none yet), keeps *UnknownAction* last, moves the branch's own tasks away,
   compiles and saves `ST_Companion`. A state whose only task is still the placeholder gets the
-  behavior task once one exists (#20 and #21 replaced NavigationHint's and ThreatCallout's this way). Any other state is left
+  behavior task once one exists (#20–#22 replaced all three this way). Any other state is left
   alone, so tasks set up in the editor survive; a new action is an asset plus one run.
 - `Companion.TriggerIntervention [Action]` starts an action's state without the pipeline for
   testing.
@@ -293,6 +293,56 @@ way to show off-screen threats in third-person games. The companion still turns 
 the help stays the companion's.
 
 ![The red arrow at the screen edge with "Left!": the enemy is to the left of the player, outside the view](images/threat-callout.png)
+
+### Draw aggro
+
+`Action.DrawAggro` (#22) takes pressure off the player in a fight:
+
+1. **Run in.** The companion runs (750 cm/s) to the enemy nearest to it among the living enemies
+   within 15 m of the player.
+2. **Taunt.** Within 3 m of it, it draws up to **2** enemies: the ones nearest to it within 12 m
+   ("Over here!"). Two of four leaves the player a fight, but a fair one.
+3. **Lead away.** It moves 7 m from the player, on the side it already is, or turning further
+   round if a wall is in the way, and stands facing the drawn enemies.
+4. **Release.** After **12 s** the enemies are sent back to the player.
+
+**How the taunt works.** The enemies' StateTree (`ST_CombatEnemy`, Epic content, not in the
+repository) picks the player in its *Find Target* state, but places its flanking, idling and
+evasion moves around the player through a Blueprint EQS context. Only giving it another target
+made the drawn enemies keep circling the player (tested: their attacks went to the companion, the
+rest of their time they stayed near the player). So `ACombatEnemy::SetTauntTarget` pauses the
+enemy's StateTree and runs a small C++ loop instead (`TauntUpdate`, 5 Hz): run to the companion,
+face it, combo attack every 1.5 s within 1.7 m, let attacks and knock-ups play out. `ClearTaunt`
+stops the loop and restarts the StateTree, which starts over at *Find Target* and goes back to the
+player. Enemy attacks only damage actors tagged `Player`, so **the companion takes no damage**: it
+soaks up attention without changing how hard the fight is.
+
+| Ends | Phase | Detail |
+|---|---|---|
+| 12 s of taunting | `completed` | `drew 2 of 4 enemies` |
+| All drawn enemies dead | `completed` | `enemies defeated (drew 2 of 4 enemies)` |
+| The player died (the scenario removes the wave's enemies in the same frame, so this is checked first) | `completed` | `player died` |
+| No enemy reached within 5 s | `failed` | `couldn't reach the enemies` |
+| No enemy near the player | `failed` | `no enemy near the player` |
+| The state was left early | `interrupted` | |
+
+The taunt is cleared in every case, so the enemies go back to their normal behavior at once.
+
+**Measured** in `Lvl_CombatScenario`'s Pressure wave (4 enemies), the player standing still, three
+runs without the companion against three where the pipeline selected draw aggro by itself (6.6–7.5 s
+into the wave). Sampled every 0.5 s over the 12 s taunt, the same stretch in both:
+
+| | Without companion | With draw aggro |
+|---|---|---|
+| Enemies within 3 m of the player | 2.29 | **1.22** (−47 %) |
+| Time with 3 or more enemies on the player | 39 % | **12 %** |
+| Hits taken (3 runs together) | 6 | **3** |
+
+Every run drew 2 of 4 enemies and led them 6.3–7.7 m away. A standing player gets hit rarely in
+any case (the enemies spend much of their time flanking and evading), so the hit counts are small;
+the crowding around the player is the clearer measure.
+
+![Top-down: the companion (left) with the drawn enemies around it, 7 m from the player (green health bar), one enemy left near the player](images/draw-aggro.png)
 
 ### Spawning and navigation in the template levels
 
