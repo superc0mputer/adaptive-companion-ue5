@@ -38,4 +38,9 @@ namespace AdaptiveLogRecordType
 	inline const FString Context = TEXT("context");
 	inline const FString Objective = TEXT("objective");
 	inline const FString Intervention = TEXT("intervention");
+
+	/** Companion actions registered or unregistered by the game, and changes of their availability */
+	inline const FString ActionRegistered = TEXT("action_registered");
+	inline const FString ActionUnregistered = TEXT("action_unregistered");
+	inline const FString ActionAvailability = TEXT("action_availability");
 }

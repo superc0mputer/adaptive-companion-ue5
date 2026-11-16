@@ -13,7 +13,7 @@ API the game reports telemetry through. It is part of the framework plugin
 | 1 | Telemetry | `UAdaptiveTelemetryStage` | Collects what the game reports, logs it, shows it in the overlay |
 | 2 | Features | `UAdaptiveFeatureStage` | Aggregates signals over time windows into features in [0, 1], defined in the config asset ([Features](#features)) |
 | 3 | Assistance Need | `UAdaptiveNeedStage` | Scores the need dimensions with a swappable estimator, rule-based by default ([Assistance need](#assistance-need)), smooths them and maps them to levels ([Need levels](#need-levels)) |
-| 4 | Context | `UAdaptiveContextStage` | Holds the contexts the game reports ([Gameplay context](#gameplay-context)); gates the need dimensions, not used by Selection yet |
+| 4 | Context | `UAdaptiveContextStage` | Holds the contexts the game reports ([Gameplay context](#gameplay-context)), which gate the need dimensions, and checks which companion actions are possible ([Companion actions](#companion-actions)) |
 | 5 | Intervention Selection | `UAdaptiveSelectionStage` | Naive: one fixed intervention, utility selection in #18 |
 | 6 | Behavior | `UAdaptiveBehaviorStage` | Hands the intervention to the game and logs its phases, status tracking in #19 |
 
@@ -779,6 +779,130 @@ placeholder intervention was selected once per Normal → Elevated change (2 in 
 
 ![Smoothed need scores with level, raw score and reason: disorientation High while standing in the maze (left), combat rising behind its raw score while threat holds Elevated (right)](images/stable-state.png)
 
+## Companion actions
+
+The framework knows what the companion can do (#17), but not how. Each action is a config asset
+that describes what the selection (#18) needs to know about it; the game registers its actions
+together with the object that carries them out, and tells the framework every update whether each
+one is possible right now.
+
+```
+game: RegisterActions(Handler, [assets]) ─▶ 4 Context, every update:
+          contexts allow it?  ─no──▶ unavailable: "needs Context.Combat"
+          └ yes ─▶ Handler.CheckAction(asset) ─▶ possible?, reason, current cost ─▶ Frame.Actions
+```
+
+### Definition
+
+An action is a `UAdaptiveCompanionAction` data asset:
+
+| Field | | In the utility (#18) |
+|---|---|---|
+| Action Name | Name in `Frame.Actions`, the log, the overlay and `OnIntervention`, e.g. `Action.NavigationHint` | |
+| Description | What it does, for people reading the asset | |
+| Relevance | Per need dimension, 0–1: how much the action helps with it. Not listed: 0 | R |
+| Required Contexts | Only possible while all of these are active | filter |
+| Blocked Contexts | Not possible while any of these is active | filter |
+| Suitability | Per context, 0–1: how well it fits. Not listed: 1; with several active contexts the lowest counts | S |
+| Base Cost | 0–1, used when the game reports no current cost | C |
+| Intrusiveness | 0–1: how much it takes over from the player | I |
+| Cooldown | Minimum time between two uses (s) | enforced in #18 |
+
+The game registers its actions with `RegisterActions(Handler, Actions)` and removes them with
+`UnregisterActions(Handler)` (C++ and Blueprint). The handler implements
+`IAdaptiveCompanionActionHandler::CheckAction(Action)` and returns an `FAdaptiveActionCheck`:
+`bPossible`, a `Reason` when not (free of changing numbers, since it is logged on change), and
+optionally the current `Cost`.
+
+- Registering the same handler again replaces its actions.
+- An empty entry, an action without a name, a name that is already registered, or a handler
+  without the interface is skipped with a warning.
+- A handler that is destroyed without unregistering (e.g. on a level change) is dropped at the
+  next update.
+
+Every update, stage 4 checks each registered action against the active contexts and, only if they
+allow it, asks the handler. `Frame.Actions` holds an `FAdaptiveActionState` per action: name,
+asset, handler, `bContextAllowed`, `bAvailable`, `Reason`, `Cost` and `Suitability`.
+
+### Decisions
+
+**The exposé's selection (§4.4) decides the fields.** It filters out actions that are unavailable
+or inappropriate in the context, then ranks the rest by `U = w_r·R + w_s·S − w_p·P − w_c·C −
+w_i·I` within cooldowns and frequency limits. The asset holds everything about an action that
+formula needs, so #18 doesn't have to change the assets again. The repetition penalty (P) is the
+one value that isn't a property of the action: it comes from the history in #18.
+
+**Hard filter and graded suitability.** The exposé has both a filter and a suitability S in the
+utility, so the asset has both: required and blocked contexts remove what makes no sense at all
+(a navigation hint during a fight), suitability weighs the rest. In this game the contexts are
+exclusive (combat or navigation), so the first actions only need the filter; suitability is there
+for games with overlapping contexts.
+
+**Cost from the game.** The exposé's C is a *contextual* cost: drawing an enemy's attention is
+cheap when the companion stands next to it and expensive when it has to run across the arena and
+leave the player alone. So the game can report a current cost; the asset's value is the default.
+
+**The game registers, and the same object answers.** The actions belong to the companion, not to
+the pipeline: another companion could have other actions, and a game with two companions registers
+two sets. The object that registers is the one that will carry the actions out in #19, so one
+object answers both "can you?" and "do it" and has the companion every check needs.
+
+**Checked in stage 4.** The exposé defines step 4 as "evaluate the current context and available
+actions", and the Context stage already runs before Need and Selection. Contexts are checked first
+so the game isn't asked about actions that can't apply.
+
+**Rejected:** the action list in `DA_PipelineConfig` (belongs to the companion, and the game should
+register its own); one game subclass per action with its own check (spreads the game logic over
+many classes); checking availability only when Selection wants to pick something (the overlay and
+the log should show it all the time, and at 10 Hz the checks cost microseconds; the one expensive
+check, a path search, is throttled by the game).
+
+### Actions in this game
+
+Assets in `Content/Companion/Actions/`, listed on `BP_Companion` (*Companion › Actions*) and
+registered by `ACompanionAIController` while it controls the companion. The behaviors themselves
+come in #20–#22.
+
+| Action | Relevance | Context | Cost, intrusiveness, cooldown | Possible when |
+|---|---|---|---|---|
+| `Action.NavigationHint` | Navigation 1.0, Disorientation 0.8 | requires `Context.Navigation` | 0.2, 0.3, 15 s | there is an objective and a full path from the player to it (path search at most once per second and whenever the objective moves) |
+| `Action.ThreatCallout` | Threat 1.0 | requires `Context.Combat` | 0.1, 0.2, 8 s | a living enemy within the combat radius is out of the camera's view (the same count as `Combat.EnemiesOutOfView`) |
+| `Action.DrawAggro` | Combat 1.0, Threat 0.4 | requires `Context.Combat` | distance to the enemy / 25 m, 0.6, 20 s | a living enemy is near the player and within 25 m of the companion |
+
+Intrusiveness follows how much the action takes over: a call-out only says something, a hint shows
+the way but leaves walking to the player, drawing aggro changes the fight. The path check interval
+and the 25 m are in Project Settings > Game > Companion › Actions.
+
+### Logging and overlay
+
+- `action_registered`: when the game registers, with the handler class and every action's
+  definition (name, asset, relevance, contexts, suitability, base cost, intrusiveness, cooldown).
+- `action_availability`: when an action's availability or reason changes, with `name`,
+  `available`, `reason`, `cost`, `suitability`.
+- `action_unregistered`: `name`, `reason` (`unregistered` or `handler destroyed`).
+- Section *4 Context* shows every action, e.g. `available, cost 0.31, suitability 1.00` or
+  `unavailable: needs Context.Combat`.
+
+### Verification
+
+Automation tests `.Actions.Definition`, `.Actions.Registration` and `.Actions.Availability` (see
+[Testing](#testing)). Scripted `-game` runs as in #13:
+
+- `Lvl_NavigationScenario`: all three registered at the start. The navigation hint is unavailable
+  for the first second (*no path to the objective*, the navmesh is still being built at runtime),
+  then available for the whole run; the two combat actions are unavailable (*needs
+  Context.Combat*). Unregistered when the session ends.
+- `Lvl_CombatScenario`: the navigation hint is unavailable (*no objective*, then *needs
+  Context.Navigation*). When combat starts (8.4 s) both combat actions become available. The
+  threat call-out switches between available and *no enemy out of view* every 1–4 s as the enemy
+  circles the player; drawing aggro stays available, its cost 0.31–0.47 as the companion is
+  12–8 m from the enemy.
+
+Availability switching often is expected: it reports a fact, not a decision. Not repeating an
+action too often is the job of the cooldowns and the repetition penalty in #18.
+
+![Section 4 Context in the maze (left) and in the arena (right)](images/companion-actions.png)
+
 ## First loop
 
 The first version of stages 2–6 is deliberately naive (#6): one signal, one score, one
@@ -872,6 +996,9 @@ The pipeline adds these record types to the session log ([LOGGING.md](LOGGING.md
 | `state` | When a need's level changed | `need`, `level` (`Normal`, `Elevated` or `High`), `previous`, `score`, `raw`, `active`, `reason`. A need starts as Normal without a record |
 | `context` | When the game activates or deactivates a context | `name`, `active`, `contexts` (all active contexts after the change) |
 | `objective` | When the game sets or clears the objective | `name`, `active`, `x`, `y`, `z` (m) |
+| `action_registered` | When the game registers actions | `handler` (class), `actions` (every action's definition) |
+| `action_availability` | When an action's availability or reason changed | `name`, `available`, `reason`, `cost`, `suitability` |
+| `action_unregistered` | When an action is removed | `name`, `reason` (`unregistered` or `handler destroyed`) |
 | `intervention` | At every phase of an intervention | `name`, `phase`; `selected` adds `need` and `score`, `dispatched` adds `receivers` (number of listeners) |
 
 The phases are `selected` (Selection), `dispatched` (Behavior, right before `OnIntervention`) and
@@ -912,7 +1039,8 @@ value and how often it occurred, e.g. `Combat.DamageTaken  10.00 (2x)`. *2 Featu
 every feature as a bar, *3 Assistance Need* every need dimension's smoothed score as a bar plus its
 level, raw score and strongest rule (or *inactive in this context*), *5* the last
 selected intervention and *6* the latest phase of each intervention, both with their time.
-*4 Context* shows every context the game reported, active or inactive, and since when.
+*4 Context* shows every context the game reported, active or inactive, and since when, and every
+registered companion action with its availability.
 
 ## Testing
 
@@ -941,7 +1069,10 @@ missing features, noisy-OR, labels), `.Need.Estimator` (context and objective ga
 invalid dimensions), `.Need.Smoothing` (half-lives, update-rate independence), `.Need.Levels`
 (enter and exit thresholds, jumps, contradicting thresholds), `.Need.Flicker` (alternating and noisy
 input), `.Need.Reaction` (time to Elevated and High, per-dimension override), `.Need.Stage` (default
-estimator, smoothing, inactive dimensions, no estimator), `.Context` (set, change flag,
+estimator, smoothing, inactive dimensions, no estimator), `.Actions.Definition` (context filter, suitability, relevance), `.Actions.Registration`
+(invalid and duplicate actions, handler without the interface, re-registering, unregistering,
+destroyed handler), `.Actions.Availability` (context first, the game's answer, reason, cost),
+`.Context` (set, change flag,
 repeated and no-op calls), `.Objective`, `.Selection` (selected once per elevation) and `.Config`
 (default stages):
 

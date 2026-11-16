@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Pipeline/AdaptivePipelineStage.h"
+#include "Pipeline/AdaptiveCompanionAction.h"
 #include "AdaptiveContextStage.generated.h"
 
 /**
@@ -17,7 +18,10 @@
  *  The game also reports the player's current objective (SetObjective), e.g. the next place to
  *  reach in a navigation level. It is logged as objective records and passed on in Frame.Objective.
  *
- *  Selection doesn't use the context yet; filtering interventions by context comes in #17, #18.
+ *  It also evaluates which companion actions are possible (#17). The game registers its actions
+ *  with the object that carries them out (RegisterActions). Every update each action is checked
+ *  against the active contexts, then the game is asked (IAdaptiveCompanionActionHandler::CheckAction).
+ *  The result goes into Frame.Actions for the selection.
  */
 UCLASS(meta = (DisplayName = "Context Stage"))
 class ADAPTIVECOMPANIONFRAMEWORK_API UAdaptiveContextStage : public UAdaptivePipelineStage
@@ -44,9 +48,20 @@ public:
 	FName GetObjective() const { return Objective; }
 	const FVector& GetObjectiveLocation() const { return ObjectiveLocation; }
 
+	/** Registers actions carried out by Handler, which must implement IAdaptiveCompanionActionHandler. Replaces Handler's earlier registration */
+	virtual void RegisterActions(UObject* Handler, const TArray<UAdaptiveCompanionAction*>& Actions);
+
+	/** Removes all actions of Handler */
+	virtual void UnregisterActions(UObject* Handler);
+
+	const TArray<FAdaptiveRegisteredAction>& GetRegisteredActions() const { return Registered; }
+
 	virtual void Update(FAdaptivePipelineFrame& Frame) override;
 
 protected:
+
+	void EvaluateActions(FAdaptivePipelineFrame& Frame);
+	void LogUnregistered(FName Action, const FString& Reason);
 
 	void LogChange(FName Name, bool bActive) const;
 	void ShowInOverlay(FName Name, bool bActive) const;
@@ -60,4 +75,16 @@ protected:
 
 	/** The active contexts as passed on in the previous update, to detect changes between updates */
 	TArray<FName> PreviousActive;
+
+	UPROPERTY()
+	TArray<FAdaptiveRegisteredAction> Registered;
+
+	struct FLoggedAvailability
+	{
+		bool bAvailable = false;
+		FString Reason;
+	};
+
+	/** Availability last logged per action, so only changes are logged */
+	TMap<FName, FLoggedAvailability> LoggedAvailability;
 };

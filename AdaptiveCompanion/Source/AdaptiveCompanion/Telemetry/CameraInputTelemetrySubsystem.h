@@ -44,6 +44,9 @@ public:
 	virtual void OnWorldBeginPlay(UWorld& InWorld) override;
 	virtual void Deinitialize() override;
 
+	/** Enemies out of view at the last check, e.g. for the companion's threat call-out */
+	int32 GetEnemiesOutOfView() const { return LastEnemiesOutOfView; }
+
 protected:
 
 	virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;
@@ -66,4 +69,6 @@ protected:
 	FVector LastViewDirection = FVector::ZeroVector;
 	double LastViewTime = 0.0;
 	bool bHasLastView = false;
+
+	int32 LastEnemiesOutOfView = 0;
 };

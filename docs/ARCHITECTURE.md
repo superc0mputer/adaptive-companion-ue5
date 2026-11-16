@@ -64,6 +64,7 @@ Game-specific assets live in `Content/Companion/`, which is allow-listed in `.gi
 | `UAdaptiveTelemetryStage`, `UAdaptiveFeatureStage`, `UAdaptiveNeedStage`, `UAdaptiveContextStage`, `UAdaptiveSelectionStage`, `UAdaptiveBehaviorStage` | The six stages. Features computes the features defined in the config asset; Need scores the need dimensions with its estimator, smooths them and maps them to levels with hysteresis; Selection is deliberately naive (one intervention) until #18; Context holds the contexts the game reports and runs before Need |
 | `FAdaptivePipelineFrame` | Data passed through the stages in one update |
 | `FAdaptiveFeatureDefinition`, `AdaptiveFeatureMath` | One feature's signal, aggregation, window and normalization; the aggregations and normalization as plain functions |
+| `UAdaptiveCompanionAction`, `IAdaptiveCompanionActionHandler` | A companion action as a config asset (relevance per need, contexts, suitability, cost, intrusiveness, cooldown); the interface the game object that carries actions out implements (`CheckAction`) |
 | `UAdaptiveNeedEstimator`, `UAdaptiveRuleNeedEstimator` | Interface that turns features into one score per need dimension, picked in the config asset; the rule-based implementation (#14) |
 | `FAdaptiveNeedDimension`, `FAdaptiveNeedRule`, `FAdaptiveNeedLevelSettings`, `AdaptiveNeedMath` | A dimension's rules and context gates; smoothing half-lives and level thresholds; rule evaluation (weight × min), noisy-OR, smoothing and level transitions as plain functions |
 | `UAdaptivePipelineConfig` | Data asset with the framework settings: update rate and the class and parameters of each stage. This game's instance is `Content/Companion/DA_PipelineConfig` |
@@ -158,14 +159,15 @@ assets in `Content/Companion/`.
 
 | Class / asset | Role |
 |---|---|
-| `ACompanionCharacter` → `BP_Companion` | The companion pawn. The Blueprint only sets mesh (`SKM_Quinn_Simple`), Anim Blueprint (`ABP_Unarmed`) and StateTree |
-| `ACompanionAIController` | Runs the StateTree assigned on the possessed companion (`UStateTreeAIComponent`) and forwards events to it. Listens to the pipeline's `OnIntervention` and starts the Intervention branch |
+| `ACompanionCharacter` → `BP_Companion` | The companion pawn. The Blueprint only sets mesh (`SKM_Quinn_Simple`), Anim Blueprint (`ABP_Unarmed`), StateTree and the companion's actions |
+| `Content/Companion/Actions/DA_Action_*`, `CompanionActions.h` | The companion's actions (`UAdaptiveCompanionAction` assets) and their names ([PIPELINE.md](PIPELINE.md#companion-actions)) |
+| `ACompanionAIController` | Runs the StateTree assigned on the possessed companion (`UStateTreeAIComponent`) and forwards events to it. Listens to the pipeline's `OnIntervention` and starts the Intervention branch. Registers the companion's actions with the pipeline while it controls the companion and answers whether each is possible (`IAdaptiveCompanionActionHandler`) |
 | `ST_Companion` | StateTree (schema *StateTree AI Component*) that decides what the companion does |
 | `CompanionStateTreeTasks` | C++ StateTree nodes: tasks *Follow Player*, *Reposition Near Player*, *Intervention Placeholder*; conditions *Player Further Than*, *Companion Hidden From Player* |
 | `CompanionVisibility` | `IsVisibleToPlayer`: field of view + line of sight test against the player's camera |
 | `UCompanionSpawnSubsystem` | Spawns the companion next to the player in every game level that has none |
 | `UCompanionNavBoundsSubsystem` | Adds a NavMeshBoundsVolume around all walkable geometry if the level's own volumes don't cover it |
-| `UCompanionSettings` | Project Settings > Game > Companion: companion class, spawn offset, navigation bounds |
+| `UCompanionSettings` | Project Settings > Game > Companion: companion class, spawn offset, navigation bounds, action checks (path check interval, draw-aggro distance) |
 
 Logic is in C++ nodes; the StateTree asset only wires them together and holds tunable parameters
 (distances, speeds, timeouts), so behavior can be tuned in the editor without recompiling.

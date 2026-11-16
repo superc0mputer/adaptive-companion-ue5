@@ -41,4 +41,12 @@ public:
 	/** Geometry larger than this half-extent (e.g. sky spheres) is ignored when generating navigation bounds */
 	UPROPERTY(Config, EditAnywhere, Category = "Navigation", meta = (EditCondition = "bCoverWalkableGeometry", Units = "cm"))
 	float GeneratedNavBoundsMaxHalfExtent = 25000.0f;
+
+	/** Action.NavigationHint: how often the path from the player to the objective is checked */
+	UPROPERTY(Config, EditAnywhere, Category = "Actions", meta = (ClampMin = 0.1, Units = "s"))
+	float NavigationPathCheckInterval = 1.0f;
+
+	/** Action.DrawAggro: the companion only goes for enemies within this distance of itself; its cost grows linearly up to it */
+	UPROPERTY(Config, EditAnywhere, Category = "Actions", meta = (ClampMin = 100, Units = "cm"))
+	float DrawAggroMaxDistance = 2500.0f;
 };

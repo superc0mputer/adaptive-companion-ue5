@@ -7,6 +7,7 @@
 #include "AdaptivePipelineSubsystem.generated.h"
 
 class UAdaptiveBehaviorStage;
+class UAdaptiveCompanionAction;
 class UAdaptiveContextStage;
 class UAdaptiveDebugSubsystem;
 class UAdaptiveLogSubsystem;
@@ -25,6 +26,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FAdaptiveInterventionDelegate, FName
  *
  *    SetContext("Context.Combat", true)      what the player is currently doing, several at once
  *    SetObjective("Objective.2", Location)   where the player currently has to go
+ *
+ *    RegisterActions(Companion, Actions)     what the companion can do (UAdaptiveCompanionAction assets)
  *
  *  The selected interventions come back to the game through OnIntervention; the game carries them
  *  out and reports their phases with ReportInterventionPhase.
@@ -74,6 +77,18 @@ public:
 	/** The objective the game reported last. Returns false if there is none */
 	UFUNCTION(BlueprintPure, Category = "Adaptive Companion|Context")
 	bool GetCurrentObjective(FName& Name, FVector& Location) const;
+
+	/**
+	 *  Registers the companion actions that Handler carries out. Handler must implement
+	 *  IAdaptiveCompanionActionHandler; the pipeline asks it every update whether each action is
+	 *  possible. Registering the same handler again replaces its actions. Logged
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Companion|Actions")
+	void RegisterActions(UObject* Handler, const TArray<UAdaptiveCompanionAction*>& Actions);
+
+	/** Removes all actions of Handler, e.g. when the companion is gone. Logged */
+	UFUNCTION(BlueprintCallable, Category = "Adaptive Companion|Actions")
+	void UnregisterActions(UObject* Handler);
 
 	/** Called when the pipeline selected an intervention. The game carries it out, e.g. by sending its companion an event */
 	UPROPERTY(BlueprintAssignable, Category = "Adaptive Companion|Behavior")
