@@ -180,7 +180,7 @@ struct FCompanionInterventionPlaceholderInstanceData
  *  arrived after MaxDuration. Reports "started" and then "completed", "failed" or "interrupted"
  *  (the state was left while it still ran) to the pipeline.
  *  The bark is debug text, so it doesn't show in Shipping builds.
- *  Action states without a real behavior use it (DrawAggro until #22).
+ *  New actions get it from the commandlet until their behavior exists; since #22 every action of this game has one.
  */
 USTRUCT(meta = (DisplayName = "Intervention Placeholder", Category = "Companion"))
 struct FCompanionInterventionPlaceholderTask : public FStateTreeTaskCommonBase
@@ -356,6 +356,101 @@ struct FCompanionThreatCalloutTask : public FStateTreeTaskCommonBase
 	GENERATED_BODY()
 
 	using FInstanceDataType = FCompanionThreatCalloutInstanceData;
+	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
+
+	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+	virtual EStateTreeRunStatus Tick(FStateTreeExecutionContext& Context, const float DeltaTime) const override;
+	virtual void ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+
+#if WITH_EDITOR
+	virtual FText GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting = EStateTreeNodeFormatting::Text) const override;
+#endif // WITH_EDITOR
+};
+
+////////////////////////////////////////////////////////////////////
+
+/**
+ *  Instance data struct for the Draw Aggro task
+ */
+USTRUCT()
+struct FCompanionDrawAggroInstanceData
+{
+	GENERATED_BODY()
+
+	/** AI Controller of the companion */
+	UPROPERTY(EditAnywhere, Category = "Context")
+	TObjectPtr<AAIController> Controller;
+
+	/** How long the drawn enemies go after the companion instead of the player */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "s"))
+	float TauntDuration = 12.0f;
+
+	/** At most this many enemies are drawn, so the player still has a fight */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 1))
+	int32 MaxEnemies = 2;
+
+	/** Only enemies within this distance of the companion are drawn */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "cm"))
+	float TauntRadius = 1200.0f;
+
+	/** After taunting, the companion moves this far from the player, so the drawn enemies follow it away */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "cm"))
+	float LeadAwayDistance = 700.0f;
+
+	/** The companion taunts once it is this close to the first enemy */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "cm"))
+	float AcceptanceRadius = 300.0f;
+
+	/** Fails if the companion hasn't reached an enemy after this long */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "s"))
+	float ReachTime = 5.0f;
+
+	/** Speed while running to the enemies */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "cm/s"))
+	float RunSpeed = 750.0f;
+
+	/** Text shown above the companion's head when it taunts */
+	UPROPERTY(EditAnywhere, Category = "Parameter")
+	FString Bark = TEXT("Over here!");
+
+	float ElapsedTime = 0.0f;
+	float TauntTime = 0.0f;
+	bool bTaunting = false;
+
+	FName Intervention;
+
+	/** The enemy the companion runs to */
+	TWeakObjectPtr<ACombatEnemy> FirstEnemy;
+
+	/** The enemies taunted, released in ExitState */
+	TArray<TWeakObjectPtr<ACombatEnemy>> Drawn;
+
+	/** Living enemies near the player when the taunt started */
+	int32 EnemiesNearby = 0;
+
+	/** How the task ended, reported in ExitState: completed, failed, or interrupted if the state was left while it still ran */
+	FName Outcome;
+	FString Detail;
+};
+
+/**
+ *  Action.DrawAggro (#22): takes pressure off the player in a fight. The companion runs to the
+ *  nearest enemy near the player, then taunts up to MaxEnemies enemies near itself ("Over here!"):
+ *  for TauntDuration they go after the companion instead of the player (ACombatEnemy::SetTauntTarget),
+ *  then they are sent back. Right after taunting it moves LeadAwayDistance away from the player, so
+ *  the drawn enemies leave the player's side instead of fighting the companion next to it. Enemies only damage the player, so the companion takes no damage.
+ *
+ *  Completes after TauntDuration ("drew 2 of 4 enemies"), when all drawn enemies are dead
+ *  ("enemies defeated") or when the player died. Fails if no enemy is near the player or the
+ *  companion can't reach one within ReachTime. The taunt is cleared in every case, so the enemies
+ *  return to the player right away. Reports "started" and the final phase (or "interrupted").
+ */
+USTRUCT(meta = (DisplayName = "Draw Aggro", Category = "Companion"))
+struct FCompanionDrawAggroTask : public FStateTreeTaskCommonBase
+{
+	GENERATED_BODY()
+
+	using FInstanceDataType = FCompanionDrawAggroInstanceData;
 	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
 
 	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;

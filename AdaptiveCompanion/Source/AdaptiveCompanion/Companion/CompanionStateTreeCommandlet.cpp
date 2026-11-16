@@ -53,6 +53,11 @@ namespace
 			State.AddTask<FCompanionThreatCalloutTask>();
 			return true;
 		}
+		if (Action == CompanionActions::DrawAggro)
+		{
+			State.AddTask<FCompanionDrawAggroTask>();
+			return true;
+		}
 		return false;
 	}
 

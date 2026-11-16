@@ -7,6 +7,7 @@
 #include "CompanionThreatMarker.h"
 #include "CameraInputTelemetrySubsystem.h"
 #include "CombatEnemy.h"
+#include "CombatCharacter.h"
 #include "GameplayContextSettings.h"
 #include "EngineUtils.h"
 #include "Engine/GameViewportClient.h"
@@ -633,6 +634,244 @@ FText FCompanionThreatCalloutTask::GetDescription(const FGuid& ID, FStateTreeDat
 {
 	const FInstanceDataType* InstanceData = InstanceDataView.GetPtr<FInstanceDataType>();
 	return FText::FromString(FString::Printf(TEXT("<b>Threat Callout</b> for up to %.0f s"), InstanceData ? InstanceData->MaxDuration : 0.0f));
+}
+#endif // WITH_EDITOR
+
+////////////////////////////////////////////////////////////////////
+
+namespace
+{
+	/** Living enemies near the player, nearest to Location first */
+	TArray<ACombatEnemy*> EnemiesNearPlayer(UWorld* World, const APawn& Player, const FVector& Location)
+	{
+		TArray<ACombatEnemy*> Enemies;
+		for (TActorIterator<ACombatEnemy> It(World); It; ++It)
+		{
+			if (IsNearbyThreat(*It, Player))
+			{
+				Enemies.Add(*It);
+			}
+		}
+		Enemies.Sort([&Location](const ACombatEnemy& A, const ACombatEnemy& B)
+		{
+			return FVector::DistSquared(A.GetActorLocation(), Location) < FVector::DistSquared(B.GetActorLocation(), Location);
+		});
+		return Enemies;
+	}
+}
+
+EStateTreeRunStatus FCompanionDrawAggroTask::EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const
+{
+	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+	InstanceData.ElapsedTime = 0.0f;
+	InstanceData.TauntTime = 0.0f;
+	InstanceData.bTaunting = false;
+	InstanceData.FirstEnemy.Reset();
+	InstanceData.Drawn.Reset();
+	InstanceData.EnemiesNearby = 0;
+	InstanceData.Outcome = NAME_None;
+	InstanceData.Detail.Reset();
+
+	ACompanionAIController* Controller = Cast<ACompanionAIController>(InstanceData.Controller);
+	ACharacter* Companion = Controller ? Controller->GetPawn<ACharacter>() : nullptr;
+	InstanceData.Intervention = Controller ? Controller->GetCurrentIntervention() : NAME_None;
+	const APawn* Player = UGameplayStatics::GetPlayerPawn(Controller, 0);
+	if (!Companion || !Player)
+	{
+		InstanceData.Outcome = AdaptiveInterventionPhase::Failed;
+		InstanceData.Detail = TEXT("no companion or player");
+		return EStateTreeRunStatus::Failed;
+	}
+
+	// the enemy nearest to the companion among those near the player, the same one CheckDrawAggro rated
+	const TArray<ACombatEnemy*> Enemies = EnemiesNearPlayer(Companion->GetWorld(), *Player, Companion->GetActorLocation());
+	if (Enemies.IsEmpty())
+	{
+		InstanceData.Outcome = AdaptiveInterventionPhase::Failed;
+		InstanceData.Detail = TEXT("no enemy near the player");
+		return EStateTreeRunStatus::Failed;
+	}
+	InstanceData.FirstEnemy = Enemies[0];
+
+	Controller->StopMovement();
+	Companion->GetCharacterMovement()->MaxWalkSpeed = InstanceData.RunSpeed;
+	Controller->MoveToActor(Enemies[0], InstanceData.AcceptanceRadius * 0.5f, true, true, false, nullptr, true);
+
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(Companion))
+	{
+		Pipeline->ReportInterventionPhase(InstanceData.Intervention, AdaptiveInterventionPhase::Started);
+	}
+
+	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion draw aggro started: running to %s, %.0f cm away."),
+		*Enemies[0]->GetName(), FVector::Dist(Companion->GetActorLocation(), Enemies[0]->GetActorLocation()));
+	return EStateTreeRunStatus::Running;
+}
+
+EStateTreeRunStatus FCompanionDrawAggroTask::Tick(FStateTreeExecutionContext& Context, const float DeltaTime) const
+{
+	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+	InstanceData.ElapsedTime += DeltaTime;
+
+	AAIController* Controller = InstanceData.Controller;
+	ACharacter* Companion = Controller ? Controller->GetPawn<ACharacter>() : nullptr;
+	const APawn* Player = UGameplayStatics::GetPlayerPawn(Controller, 0);
+
+	auto Finish = [&InstanceData](FName Phase, const FString& Detail)
+	{
+		InstanceData.Outcome = Phase;
+		InstanceData.Detail = Detail;
+		return Phase == AdaptiveInterventionPhase::Failed ? EStateTreeRunStatus::Failed : EStateTreeRunStatus::Succeeded;
+	};
+
+	if (!Companion)
+	{
+		return Finish(AdaptiveInterventionPhase::Failed, TEXT("no companion"));
+	}
+	// checked before the enemies: when the player dies the scenario removes the wave's enemies in the
+	// same frame, which would otherwise look like "enemies defeated". The pawn is gone while it respawns
+	const ACombatCharacter* CombatPlayer = Cast<ACombatCharacter>(Player);
+	if (!Player || (CombatPlayer && CombatPlayer->GetCurrentHP() <= 0.0f))
+	{
+		return Finish(AdaptiveInterventionPhase::Completed, TEXT("player died"));
+	}
+
+	if (!InstanceData.bTaunting)
+	{
+		// the first enemy died on the way: run to the next one
+		if (!IsNearbyThreat(InstanceData.FirstEnemy.Get(), *Player))
+		{
+			const TArray<ACombatEnemy*> Enemies = EnemiesNearPlayer(Companion->GetWorld(), *Player, Companion->GetActorLocation());
+			if (Enemies.IsEmpty())
+			{
+				return Finish(AdaptiveInterventionPhase::Completed, TEXT("enemies defeated"));
+			}
+			InstanceData.FirstEnemy = Enemies[0];
+			Controller->MoveToActor(Enemies[0], InstanceData.AcceptanceRadius * 0.5f, true, true, false, nullptr, true);
+		}
+
+		if (FVector::Dist(Companion->GetActorLocation(), InstanceData.FirstEnemy->GetActorLocation()) > InstanceData.AcceptanceRadius)
+		{
+			return InstanceData.ElapsedTime >= InstanceData.ReachTime
+				? Finish(AdaptiveInterventionPhase::Failed, TEXT("couldn't reach the enemies"))
+				: EStateTreeRunStatus::Running;
+		}
+
+		// arrived: the enemies nearest to the companion go after it instead of the player
+		Controller->StopMovement();
+		ResetCompanionSpeed(Companion);
+		const TArray<ACombatEnemy*> Enemies = EnemiesNearPlayer(Companion->GetWorld(), *Player, Companion->GetActorLocation());
+		InstanceData.EnemiesNearby = Enemies.Num();
+		for (ACombatEnemy* Enemy : Enemies)
+		{
+			if (InstanceData.Drawn.Num() >= InstanceData.MaxEnemies || FVector::Dist(Enemy->GetActorLocation(), Companion->GetActorLocation()) > InstanceData.TauntRadius)
+			{
+				break;
+			}
+			// a little longer than the taunt itself: ExitState ends it, the duration is only a safety net
+			Enemy->SetTauntTarget(Companion, InstanceData.TauntDuration + 2.0f);
+			InstanceData.Drawn.Add(Enemy);
+		}
+		InstanceData.bTaunting = true;
+
+		// lead them away from the player: first on the side the companion already is, then turning
+		// further round, since near a wall the straight way out is blocked
+		FVector Away = (Companion->GetActorLocation() - Player->GetActorLocation()).GetSafeNormal2D();
+		if (Away.IsNearlyZero())
+		{
+			Away = -Player->GetActorForwardVector().GetSafeNormal2D();
+		}
+		const UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(Companion->GetWorld());
+		static const float CandidateAngles[] = { 0.0f, 45.0f, -45.0f, 90.0f, -90.0f, 135.0f, -135.0f, 180.0f };
+		bool bLeading = false;
+		for (const float Angle : CandidateAngles)
+		{
+			FNavLocation Spot;
+			const FVector Wanted = Player->GetActorLocation() + Away.RotateAngleAxis(Angle, FVector::UpVector) * InstanceData.LeadAwayDistance;
+			// the spot has to be on the navmesh and still most of the distance away from the player
+			if (NavSys && NavSys->ProjectPointToNavigation(Wanted, Spot, FVector(150.0f, 150.0f, 500.0f))
+				&& FVector::Dist2D(Spot.Location, Player->GetActorLocation()) >= 0.75f * InstanceData.LeadAwayDistance
+				&& Controller->MoveToLocation(Spot.Location, 50.0f, false, true, false, true, nullptr, false) != EPathFollowingRequestResult::Failed)
+			{
+				UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion leads the enemies away: %.0f cm from the player, %.0f degrees off its side."), FVector::Dist2D(Spot.Location, Player->GetActorLocation()), Angle);
+				bLeading = true;
+				break;
+			}
+		}
+		if (!bLeading)
+		{
+			UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion found no spot to lead the enemies to and taunts where it is."));
+		}
+
+		DrawDebugString(Companion->GetWorld(), FVector(0.0f, 0.0f, 120.0f), InstanceData.Bark, Companion, FColor::Orange, 3.0f, true, 1.5f);
+		UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion draws %d of %d enemies near the player after %.1f s."), InstanceData.Drawn.Num(), InstanceData.EnemiesNearby, InstanceData.ElapsedTime);
+		return EStateTreeRunStatus::Running;
+	}
+
+	InstanceData.TauntTime += DeltaTime;
+	const FString Drew = FString::Printf(TEXT("drew %d of %d enemies"), InstanceData.Drawn.Num(), InstanceData.EnemiesNearby);
+
+	// stand and face the nearest drawn enemy that is still alive
+	const ACombatEnemy* Nearest = nullptr;
+	for (const TWeakObjectPtr<ACombatEnemy>& Enemy : InstanceData.Drawn)
+	{
+		if (Enemy.IsValid() && Enemy->CurrentHP > 0.0f
+			&& (!Nearest || FVector::DistSquared(Enemy->GetActorLocation(), Companion->GetActorLocation()) < FVector::DistSquared(Nearest->GetActorLocation(), Companion->GetActorLocation())))
+		{
+			Nearest = Enemy.Get();
+		}
+	}
+	if (!Nearest)
+	{
+		return Finish(AdaptiveInterventionPhase::Completed, FString::Printf(TEXT("enemies defeated (%s)"), *Drew));
+	}
+	const FVector ToEnemy = (Nearest->GetActorLocation() - Companion->GetActorLocation()).GetSafeNormal2D();
+	if (Controller->GetMoveStatus() != EPathFollowingStatus::Moving && !ToEnemy.IsNearlyZero())
+	{
+		Companion->SetActorRotation(FMath::RInterpTo(Companion->GetActorRotation(), ToEnemy.Rotation(), DeltaTime, 10.0f));
+	}
+
+	if (InstanceData.TauntTime >= InstanceData.TauntDuration)
+	{
+		return Finish(AdaptiveInterventionPhase::Completed, Drew);
+	}
+	return EStateTreeRunStatus::Running;
+}
+
+void FCompanionDrawAggroTask::ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const
+{
+	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+
+	// the enemies go back to the player right away, however the task ended
+	for (const TWeakObjectPtr<ACombatEnemy>& Enemy : InstanceData.Drawn)
+	{
+		if (Enemy.IsValid())
+		{
+			Enemy->ClearTaunt();
+		}
+	}
+	InstanceData.Drawn.Reset();
+
+	if (InstanceData.Controller)
+	{
+		InstanceData.Controller->StopMovement();
+		ResetCompanionSpeed(InstanceData.Controller->GetPawn());
+	}
+
+	const FName Phase = InstanceData.Outcome.IsNone() ? AdaptiveInterventionPhase::Interrupted : InstanceData.Outcome;
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(InstanceData.Controller))
+	{
+		Pipeline->ReportInterventionPhase(InstanceData.Intervention, Phase, InstanceData.Detail);
+	}
+
+	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion draw aggro %s after %.1f s (%.1f s taunting)%s%s."), *Phase.ToString(), InstanceData.ElapsedTime, InstanceData.TauntTime,
+		InstanceData.Detail.IsEmpty() ? TEXT("") : TEXT(": "), *InstanceData.Detail);
+}
+
+#if WITH_EDITOR
+FText FCompanionDrawAggroTask::GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting /*= EStateTreeNodeFormatting::Text*/) const
+{
+	const FInstanceDataType* InstanceData = InstanceDataView.GetPtr<FInstanceDataType>();
+	return FText::FromString(FString::Printf(TEXT("<b>Draw Aggro</b> of up to %d enemies for %.0f s"), InstanceData ? InstanceData->MaxEnemies : 0, InstanceData ? InstanceData->TauntDuration : 0.0f));
 }
 #endif // WITH_EDITOR
 

@@ -12,6 +12,10 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Pipeline/AdaptivePipelineSubsystem.h"
 #include "Animation/AnimInstance.h"
+#include "Components/StateTreeAIComponent.h"
+#include "GameFramework/Character.h"
+#include "AIController.h"
+#include "Navigation/PathFollowingComponent.h"
 
 ACombatEnemy::ACombatEnemy()
 {
@@ -347,4 +351,103 @@ void ACombatEnemy::EndPlay(EEndPlayReason::Type EndPlayReason)
 
 	// clear the death timer
 	GetWorld()->GetTimerManager().ClearTimer(DeathTimer);
+	GetWorld()->GetTimerManager().ClearTimer(TauntTimer);
+}
+
+void ACombatEnemy::SetTauntTarget(ACharacter* Target, float Duration)
+{
+	AAIController* AI = Cast<AAIController>(GetController());
+	if (CurrentHP <= 0.0f || !Target || !AI)
+	{
+		return;
+	}
+
+	TauntTarget = Target;
+	TauntEndTime = GetWorld()->GetTimeSeconds() + Duration;
+
+	if (UStateTreeAIComponent* StateTree = AI->FindComponentByClass<UStateTreeAIComponent>())
+	{
+		StateTree->StopLogic(TEXT("Taunted"));
+	}
+	AI->StopMovement();
+	AI->SetFocus(Target);
+
+	GetWorldTimerManager().SetTimer(TauntTimer, this, &ACombatEnemy::TauntUpdate, 0.2f, true, 0.0f);
+}
+
+void ACombatEnemy::ClearTaunt()
+{
+	if (!GetWorldTimerManager().IsTimerActive(TauntTimer))
+	{
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(TauntTimer);
+	TauntTarget.Reset();
+	TauntEndTime = 0.0;
+
+	AAIController* AI = Cast<AAIController>(GetController());
+	if (!AI)
+	{
+		return;
+	}
+	AI->StopMovement();
+	AI->ClearFocus(EAIFocusPriority::Gameplay);
+
+	// back to normal: the StateTree starts over at Find Target, which picks the player
+	if (CurrentHP > 0.0f)
+	{
+		if (UStateTreeAIComponent* StateTree = AI->FindComponentByClass<UStateTreeAIComponent>())
+		{
+			StateTree->RestartLogic();
+		}
+	}
+}
+
+ACharacter* ACombatEnemy::GetTauntTarget() const
+{
+	return GetWorld() && GetWorld()->GetTimeSeconds() < TauntEndTime ? TauntTarget.Get() : nullptr;
+}
+
+void ACombatEnemy::TauntUpdate()
+{
+	ACharacter* Target = GetTauntTarget();
+	AAIController* AI = Cast<AAIController>(GetController());
+	if (!Target || !AI || CurrentHP <= 0.0f)
+	{
+		// expired or the target is gone (dead enemies are left alone, HandleDeath takes over)
+		if (CurrentHP > 0.0f)
+		{
+			ClearTaunt();
+		}
+		else
+		{
+			GetWorldTimerManager().ClearTimer(TauntTimer);
+		}
+		return;
+	}
+
+	// mid-attack, or knocked into the air by the player: let that play out
+	if (bIsAttacking || GetCharacterMovement()->IsFalling())
+	{
+		return;
+	}
+
+	const float Distance = FVector::Dist2D(GetActorLocation(), Target->GetActorLocation());
+	if (Distance > TauntAttackRange)
+	{
+		if (AI->GetMoveStatus() != EPathFollowingStatus::Moving)
+		{
+			AI->MoveToActor(Target, TauntAttackRange * 0.6f, true, true, false, nullptr, true);
+		}
+		return;
+	}
+
+	AI->StopMovement();
+	const double Now = GetWorld()->GetTimeSeconds();
+	if (Now - LastTauntAttackTime >= TauntAttackInterval)
+	{
+		LastTauntAttackTime = Now;
+		DoAIComboAttack();
+	}
 }
