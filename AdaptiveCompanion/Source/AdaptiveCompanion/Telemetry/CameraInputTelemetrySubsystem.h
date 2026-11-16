@@ -47,6 +47,12 @@ public:
 	/** Enemies out of view at the last check, e.g. for the companion's threat call-out */
 	int32 GetEnemiesOutOfView() const { return LastEnemiesOutOfView; }
 
+	/**
+	 *  Whether Location is inside the view frustum of the player's camera. Walls aren't checked. The
+	 *  test behind Combat.EnemiesOutOfView, also used by the threat call-out to tell when the player saw the enemy
+	 */
+	static bool IsInCameraView(const APlayerController& Controller, const FVector& Location);
+
 protected:
 
 	virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;
@@ -57,7 +63,7 @@ protected:
 	double MeasureTurnRate(const FVector& ViewDirection);
 
 	/** Living enemies within the combat radius of the player that are outside the camera's view frustum */
-	int32 CountEnemiesOutOfView(const APlayerController* Controller, const FVector& CameraLocation, const FRotator& CameraRotation, float FOV) const;
+	int32 CountEnemiesOutOfView(const APlayerController& Controller) const;
 
 	static double MeasureIdleTime();
 

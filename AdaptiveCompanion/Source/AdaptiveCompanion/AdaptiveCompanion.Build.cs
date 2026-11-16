@@ -25,7 +25,7 @@ public class AdaptiveCompanion : ModuleRules
 			"AdaptiveCompanionFramework"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "Json" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "Json", "SlateCore" });
 
 		// the CompanionStateTree commandlet edits the StateTree asset (#19)
 		if (Target.bBuildEditor)

@@ -71,7 +71,7 @@ void UCameraInputTelemetrySubsystem::UpdateTelemetry()
 		}
 	}
 
-	const int32 EnemiesOutOfView = CountEnemiesOutOfView(Controller, CameraLocation, CameraRotation, Camera->GetFOVAngle());
+	const int32 EnemiesOutOfView = CountEnemiesOutOfView(*Controller);
 	LastEnemiesOutOfView = EnemiesOutOfView;
 
 	Report(TurnRate, ObjectiveAngle, EnemiesOutOfView, IdleTime);
@@ -96,21 +96,35 @@ double UCameraInputTelemetrySubsystem::MeasureTurnRate(const FVector& ViewDirect
 	return TurnRate;
 }
 
-int32 UCameraInputTelemetrySubsystem::CountEnemiesOutOfView(const APlayerController* Controller, const FVector& CameraLocation, const FRotator& CameraRotation, float FOV) const
+bool UCameraInputTelemetrySubsystem::IsInCameraView(const APlayerController& Controller, const FVector& Location)
 {
-	const APawn* Player = Controller->GetPawn();
-	if (!Player)
+	// the camera, not the control rotation: it is what the player actually sees, camera lag included
+	const APlayerCameraManager* Camera = Controller.PlayerCameraManager.Get();
+	if (!Camera)
 	{
-		return 0;
+		return false;
 	}
 
 	// the camera's FOV is horizontal; the vertical one follows from the viewport's aspect ratio
 	int32 ViewportX = 0;
 	int32 ViewportY = 0;
-	Controller->GetViewportSize(ViewportX, ViewportY);
+	Controller.GetViewportSize(ViewportX, ViewportY);
 	const double AspectRatio = ViewportX > 0 && ViewportY > 0 ? double(ViewportY) / ViewportX : 9.0 / 16.0;
-	const double HalfWidth = FMath::Tan(FMath::DegreesToRadians(FOV * 0.5));
+	const double HalfWidth = FMath::Tan(FMath::DegreesToRadians(Camera->GetFOVAngle() * 0.5));
 	const double HalfHeight = HalfWidth * AspectRatio;
+
+	// in camera space X points forward, Y right and Z up; the point has to be inside the frustum
+	const FVector Local = Camera->GetCameraRotation().UnrotateVector(Location - Camera->GetCameraLocation());
+	return Local.X > 0.0 && FMath::Abs(Local.Y) <= Local.X * HalfWidth && FMath::Abs(Local.Z) <= Local.X * HalfHeight;
+}
+
+int32 UCameraInputTelemetrySubsystem::CountEnemiesOutOfView(const APlayerController& Controller) const
+{
+	const APawn* Player = Controller.GetPawn();
+	if (!Player)
+	{
+		return 0;
+	}
 
 	const float Radius = GetDefault<UGameplayContextSettings>()->CombatRadius;
 	const FVector PlayerLocation = Player->GetActorLocation();
@@ -118,17 +132,9 @@ int32 UCameraInputTelemetrySubsystem::CountEnemiesOutOfView(const APlayerControl
 
 	for (TActorIterator<ACombatEnemy> It(GetWorld()); It; ++It)
 	{
-		// same "nearby" as Combat.EnemiesNearby: living, and within the radius of the player
-		if (It->CurrentHP <= 0.0f || FVector::Dist(It->GetActorLocation(), PlayerLocation) > Radius)
-		{
-			continue;
-		}
-
-		// in camera space X points forward, Y right and Z up; the center has to be inside the frustum.
+		// same "nearby" as Combat.EnemiesNearby: living, and within the radius of the player.
 		// Walls aren't checked: an enemy behind a wall in front of the player is still "in view"
-		const FVector Local = CameraRotation.UnrotateVector(It->GetActorLocation() - CameraLocation);
-		const bool bInView = Local.X > 0.0 && FMath::Abs(Local.Y) <= Local.X * HalfWidth && FMath::Abs(Local.Z) <= Local.X * HalfHeight;
-		if (!bInView)
+		if (It->CurrentHP > 0.0f && FVector::Dist(It->GetActorLocation(), PlayerLocation) <= Radius && !IsInCameraView(Controller, It->GetActorLocation()))
 		{
 			++Count;
 		}
