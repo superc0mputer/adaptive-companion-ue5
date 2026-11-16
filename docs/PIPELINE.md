@@ -860,8 +860,9 @@ check, a path search, is throttled by the game).
 ### Actions in this game
 
 Assets in `Content/Companion/Actions/`, listed on `BP_Companion` (*Companion › Actions*) and
-registered by `ACompanionAIController` while it controls the companion. The behaviors themselves
-come in #20–#22.
+registered by `ACompanionAIController` while it controls the companion. Their behaviors: the
+navigation hint since #20 ([ARCHITECTURE.md](ARCHITECTURE.md#navigation-hint)); the other two are
+still placeholders until #21 and #22.
 
 | Action | Relevance | Context | Cost, intrusiveness, cooldown | Possible when |
 |---|---|---|---|---|
@@ -1111,7 +1112,8 @@ was possible, and a refusal that ends up in the log. The broadcast remains for o
 
 **In this game** `ACompanionAIController::PerformAction` stores the action's name and sends the
 StateTree event that enters the Intervention branch, which picks the action's own state
-([ARCHITECTURE.md](ARCHITECTURE.md#statetree-layout)). It returns false while the companion has no
+([ARCHITECTURE.md](ARCHITECTURE.md#statetree-layout)). The navigation hint reports `completed`
+with how it ended: `player followed`, `objective reached` or `player didn't follow`. It returns false while the companion has no
 pawn or no running StateTree.
 
 ## Update rate
@@ -1166,10 +1168,10 @@ The pipeline adds these record types to the session log ([LOGGING.md](LOGGING.md
 | `action_availability` | When an action's availability or reason changed | `name`, `available`, `reason`, `cost`, `suitability` |
 | `action_unregistered` | When an action is removed | `name`, `reason` (`unregistered` or `handler destroyed`) |
 | `selection` | When an action is selected, and when "do nothing" or its reason changes | `decision` (action or `none`), `reason`, `candidates` (per action: `utility`, `need` and the terms, or `excluded`) |
-| `intervention` | At every phase of an intervention | `name`, `phase`; `selected` adds `need`, `score`, `level` and `utility`, final phases add `duration` (s since dispatch), `failed` and `rejected` add `detail` ([Carrying out actions](#carrying-out-actions)) |
+| `intervention` | At every phase of an intervention | `name`, `phase`; `selected` adds `need`, `score`, `level` and `utility`, final phases add `duration` (s since dispatch), `failed` and `rejected` add `detail` (why), and so can `completed` (e.g. the navigation hint's `player followed`) ([Carrying out actions](#carrying-out-actions)) |
 
 The phases are `selected` (Selection), `dispatched` (Behavior, right before `OnIntervention`) and
-whatever the game reports; the companion reports `started` and `ended`.
+whatever the game reports; the companion reports `started`, then `completed`, `failed` or `interrupted`.
 
 ```json
 {"seq":12,"t":8.28,"game_time":5.40,"type":"signal","payload":{"name":"Combat.DamageTaken","kind":"event","value":25}, ...}
