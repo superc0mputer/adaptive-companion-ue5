@@ -180,7 +180,7 @@ struct FCompanionInterventionPlaceholderInstanceData
  *  arrived after MaxDuration. Reports "started" and then "completed", "failed" or "interrupted"
  *  (the state was left while it still ran) to the pipeline.
  *  The bark is debug text, so it doesn't show in Shipping builds.
- *  Action states without a real behavior use it (ThreatCallout and DrawAggro until #21, #22).
+ *  Action states without a real behavior use it (DrawAggro until #22).
  */
 USTRUCT(meta = (DisplayName = "Intervention Placeholder", Category = "Companion"))
 struct FCompanionInterventionPlaceholderTask : public FStateTreeTaskCommonBase
@@ -287,6 +287,75 @@ struct FCompanionNavigationHintTask : public FStateTreeTaskCommonBase
 	GENERATED_BODY()
 
 	using FInstanceDataType = FCompanionNavigationHintInstanceData;
+	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
+
+	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+	virtual EStateTreeRunStatus Tick(FStateTreeExecutionContext& Context, const float DeltaTime) const override;
+	virtual void ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+
+#if WITH_EDITOR
+	virtual FText GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting = EStateTreeNodeFormatting::Text) const override;
+#endif // WITH_EDITOR
+};
+
+////////////////////////////////////////////////////////////////////
+
+class ACombatEnemy;
+class ACompanionThreatMarker;
+class SWidget;
+class UGameViewportClient;
+
+/**
+ *  Instance data struct for the Threat Callout task
+ */
+USTRUCT()
+struct FCompanionThreatCalloutInstanceData
+{
+	GENERATED_BODY()
+
+	/** AI Controller of the companion */
+	UPROPERTY(EditAnywhere, Category = "Context")
+	TObjectPtr<AAIController> Controller;
+
+	/** The call-out ends after this long if the player doesn't look */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "s"))
+	float MaxDuration = 5.0f;
+
+	/** How long the bark above the companion is shown */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "s"))
+	float BarkDuration = 2.5f;
+
+	float ElapsedTime = 0.0f;
+
+	FName Intervention;
+
+	TWeakObjectPtr<ACombatEnemy> Threat;
+	TWeakObjectPtr<ACompanionThreatMarker> Marker;
+	TWeakObjectPtr<UGameViewportClient> Viewport;
+	TSharedPtr<SWidget> Indicator;
+
+	/** How the task ended, reported in ExitState: completed, failed, or interrupted if the state was left while it still ran */
+	FName Outcome;
+	FString Detail;
+};
+
+/**
+ *  Action.ThreatCallout (#21): warns the player about the nearest living enemy within the combat
+ *  radius that is outside the camera's view (the threat need's "close and unseen"). Three cues: a
+ *  pulsing red arrow at the screen edge pointing at it with "Behind you!" / "Left!" / "Right!"
+ *  (SCompanionThreatIndicator), a red cone above the enemy (ACompanionThreatMarker), and the
+ *  companion stopping and turning to face it with the same words as a bark.
+ *
+ *  Completes as soon as the enemy is in view ("threat in view", whether the player turned or the enemy walked in), when it dies or leaves the combat
+ *  radius ("threat gone"), or after MaxDuration ("player didn't look"). Fails if no enemy is out of
+ *  view at the start. Reports "started" and the final phase (or "interrupted") to the pipeline.
+ */
+USTRUCT(meta = (DisplayName = "Threat Callout", Category = "Companion"))
+struct FCompanionThreatCalloutTask : public FStateTreeTaskCommonBase
+{
+	GENERATED_BODY()
+
+	using FInstanceDataType = FCompanionThreatCalloutInstanceData;
 	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
 
 	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;

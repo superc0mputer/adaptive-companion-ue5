@@ -48,6 +48,11 @@ namespace
 			State.AddTask<FCompanionNavigationHintTask>();
 			return true;
 		}
+		if (Action == CompanionActions::ThreatCallout)
+		{
+			State.AddTask<FCompanionThreatCalloutTask>();
+			return true;
+		}
 		return false;
 	}
 

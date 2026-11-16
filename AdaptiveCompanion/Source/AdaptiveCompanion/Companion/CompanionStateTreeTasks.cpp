@@ -3,6 +3,13 @@
 #include "CompanionCharacter.h"
 #include "CompanionVisibility.h"
 #include "CompanionPathTrail.h"
+#include "CompanionThreatIndicator.h"
+#include "CompanionThreatMarker.h"
+#include "CameraInputTelemetrySubsystem.h"
+#include "CombatEnemy.h"
+#include "GameplayContextSettings.h"
+#include "EngineUtils.h"
+#include "Engine/GameViewportClient.h"
 #include "NavigationPath.h"
 #include "StateTreeExecutionContext.h"
 #include "AIController.h"
@@ -460,6 +467,172 @@ FText FCompanionNavigationHintTask::GetDescription(const FGuid& ID, FStateTreeDa
 {
 	const FInstanceDataType* InstanceData = InstanceDataView.GetPtr<FInstanceDataType>();
 	return FText::FromString(FString::Printf(TEXT("<b>Navigation Hint</b> %.0f cm ahead"), InstanceData ? InstanceData->LeadDistance : 0.0f));
+}
+#endif // WITH_EDITOR
+
+////////////////////////////////////////////////////////////////////
+
+namespace
+{
+	/** Living enemy within the combat radius of the player */
+	bool IsNearbyThreat(const ACombatEnemy* Enemy, const APawn& Player)
+	{
+		return IsValid(Enemy) && Enemy->CurrentHP > 0.0f
+			&& FVector::Dist(Enemy->GetActorLocation(), Player.GetActorLocation()) <= GetDefault<UGameplayContextSettings>()->CombatRadius;
+	}
+}
+
+EStateTreeRunStatus FCompanionThreatCalloutTask::EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const
+{
+	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+	InstanceData.ElapsedTime = 0.0f;
+	InstanceData.Outcome = NAME_None;
+	InstanceData.Detail.Reset();
+	InstanceData.Threat.Reset();
+	InstanceData.Marker.Reset();
+	InstanceData.Viewport.Reset();
+	InstanceData.Indicator.Reset();
+
+	ACompanionAIController* Controller = Cast<ACompanionAIController>(InstanceData.Controller);
+	ACharacter* Companion = Controller ? Controller->GetPawn<ACharacter>() : nullptr;
+	InstanceData.Intervention = Controller ? Controller->GetCurrentIntervention() : NAME_None;
+	APlayerController* PlayerController = UGameplayStatics::GetPlayerController(Controller, 0);
+	const APawn* Player = PlayerController ? PlayerController->GetPawn() : nullptr;
+	if (!Companion || !Player)
+	{
+		InstanceData.Outcome = AdaptiveInterventionPhase::Failed;
+		InstanceData.Detail = TEXT("no companion or player");
+		return EStateTreeRunStatus::Failed;
+	}
+
+	// the nearest enemy the player doesn't see: what the threat need's "close and unseen" is about
+	UWorld* World = Companion->GetWorld();
+	ACombatEnemy* Threat = nullptr;
+	double Nearest = UE_BIG_NUMBER;
+	for (TActorIterator<ACombatEnemy> It(World); It; ++It)
+	{
+		const double Distance = FVector::Dist(It->GetActorLocation(), Player->GetActorLocation());
+		if (IsNearbyThreat(*It, *Player) && Distance < Nearest && !UCameraInputTelemetrySubsystem::IsInCameraView(*PlayerController, It->GetActorLocation()))
+		{
+			Threat = *It;
+			Nearest = Distance;
+		}
+	}
+	if (!Threat)
+	{
+		InstanceData.Outcome = AdaptiveInterventionPhase::Failed;
+		InstanceData.Detail = TEXT("no enemy out of view");
+		return EStateTreeRunStatus::Failed;
+	}
+	InstanceData.Threat = Threat;
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	if (ACompanionThreatMarker* Marker = World->SpawnActor<ACompanionThreatMarker>(ACompanionThreatMarker::StaticClass(), FTransform::Identity, SpawnParams))
+	{
+		Marker->AttachAbove(Threat);
+		InstanceData.Marker = Marker;
+	}
+
+	if (UGameViewportClient* Viewport = World->GetGameViewport())
+	{
+		TSharedRef<SWidget> Indicator = SNew(SCompanionThreatIndicator).PlayerController(PlayerController).Threat(Threat);
+		Viewport->AddViewportWidgetContent(Indicator, 10);
+		InstanceData.Viewport = Viewport;
+		InstanceData.Indicator = Indicator;
+	}
+
+	// the companion stops and turns to the enemy (in Tick), calling out where it is
+	Controller->StopMovement();
+	float Yaw = 0.0f;
+	SCompanionThreatIndicator::GetRelativeYaw(*PlayerController, *Threat, Yaw);
+	DrawDebugString(World, FVector(0.0f, 0.0f, 120.0f), SCompanionThreatIndicator::DirectionText(Yaw), Companion, FColor::Red, InstanceData.BarkDuration, true, 1.5f);
+
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(Companion))
+	{
+		Pipeline->ReportInterventionPhase(InstanceData.Intervention, AdaptiveInterventionPhase::Started);
+	}
+
+	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion threat call-out started: %s, %.0f cm from the player, %.0f degrees from the view direction (%s)."),
+		*Threat->GetName(), Nearest, Yaw, *SCompanionThreatIndicator::DirectionText(Yaw));
+	return EStateTreeRunStatus::Running;
+}
+
+EStateTreeRunStatus FCompanionThreatCalloutTask::Tick(FStateTreeExecutionContext& Context, const float DeltaTime) const
+{
+	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+	InstanceData.ElapsedTime += DeltaTime;
+
+	AAIController* Controller = InstanceData.Controller;
+	ACharacter* Companion = Controller ? Controller->GetPawn<ACharacter>() : nullptr;
+	const APlayerController* PlayerController = UGameplayStatics::GetPlayerController(Controller, 0);
+	const APawn* Player = PlayerController ? PlayerController->GetPawn() : nullptr;
+	const ACombatEnemy* Threat = InstanceData.Threat.Get();
+
+	auto Complete = [&InstanceData](const TCHAR* Detail)
+	{
+		InstanceData.Outcome = AdaptiveInterventionPhase::Completed;
+		InstanceData.Detail = Detail;
+		return EStateTreeRunStatus::Succeeded;
+	};
+
+	// no player while it respawns after dying: nothing left to warn about
+	if (!Player || !IsNearbyThreat(Threat, *Player))
+	{
+		return Complete(TEXT("threat gone"));
+	}
+	if (UCameraInputTelemetrySubsystem::IsInCameraView(*PlayerController, Threat->GetActorLocation()))
+	{
+		return Complete(TEXT("threat in view"));
+	}
+	if (InstanceData.ElapsedTime >= InstanceData.MaxDuration)
+	{
+		return Complete(TEXT("player didn't look"));
+	}
+
+	if (Companion)
+	{
+		const FVector ToThreat = (Threat->GetActorLocation() - Companion->GetActorLocation()).GetSafeNormal2D();
+		if (!ToThreat.IsNearlyZero())
+		{
+			Companion->SetActorRotation(FMath::RInterpTo(Companion->GetActorRotation(), ToThreat.Rotation(), DeltaTime, 10.0f));
+		}
+	}
+	return EStateTreeRunStatus::Running;
+}
+
+void FCompanionThreatCalloutTask::ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const
+{
+	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+
+	if (UGameViewportClient* Viewport = InstanceData.Viewport.Get(); Viewport && InstanceData.Indicator)
+	{
+		Viewport->RemoveViewportWidgetContent(InstanceData.Indicator.ToSharedRef());
+	}
+	InstanceData.Indicator.Reset();
+	InstanceData.Viewport.Reset();
+
+	if (ACompanionThreatMarker* Marker = InstanceData.Marker.Get())
+	{
+		Marker->Destroy();
+	}
+	InstanceData.Marker.Reset();
+
+	const FName Phase = InstanceData.Outcome.IsNone() ? AdaptiveInterventionPhase::Interrupted : InstanceData.Outcome;
+	if (UAdaptivePipelineSubsystem* Pipeline = UAdaptivePipelineSubsystem::Get(InstanceData.Controller))
+	{
+		Pipeline->ReportInterventionPhase(InstanceData.Intervention, Phase, InstanceData.Detail);
+	}
+
+	UE_LOG(LogAdaptiveCompanion, Log, TEXT("Companion threat call-out %s after %.1f s%s%s."), *Phase.ToString(), InstanceData.ElapsedTime,
+		InstanceData.Detail.IsEmpty() ? TEXT("") : TEXT(": "), *InstanceData.Detail);
+}
+
+#if WITH_EDITOR
+FText FCompanionThreatCalloutTask::GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting /*= EStateTreeNodeFormatting::Text*/) const
+{
+	const FInstanceDataType* InstanceData = InstanceDataView.GetPtr<FInstanceDataType>();
+	return FText::FromString(FString::Printf(TEXT("<b>Threat Callout</b> for up to %.0f s"), InstanceData ? InstanceData->MaxDuration : 0.0f));
 }
 #endif // WITH_EDITOR
 
