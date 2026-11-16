@@ -2,6 +2,7 @@
 #include "AdaptiveCompanion.h"
 
 #if WITH_EDITOR
+#include "CompanionActions.h"
 #include "CompanionCharacter.h"
 #include "CompanionSettings.h"
 #include "CompanionStateTreeTasks.h"
@@ -37,6 +38,23 @@ namespace
 	bool HasTransition(const UStateTreeState& State, EStateTreeTransitionTrigger Trigger)
 	{
 		return State.Transitions.ContainsByPredicate([Trigger](const FStateTreeTransition& Transition) { return Transition.Trigger == Trigger; });
+	}
+
+	/** Gives the state the action's behavior task, or the placeholder for actions without one yet. False if there is none */
+	bool AddBehaviorTask(UStateTreeState& State, FName Action)
+	{
+		if (Action == CompanionActions::NavigationHint)
+		{
+			State.AddTask<FCompanionNavigationHintTask>();
+			return true;
+		}
+		return false;
+	}
+
+	/** Whether the state's only task is the placeholder */
+	bool HasOnlyPlaceholder(const UStateTreeState& State)
+	{
+		return State.Tasks.Num() == 1 && State.Tasks[0].Node.GetScriptStruct() == FCompanionInterventionPlaceholderTask::StaticStruct();
 	}
 
 	/** "Action.NavigationHint" → "NavigationHint" */
@@ -106,6 +124,7 @@ int32 UCompanionStateTreeCommandlet::Main(const FString& Params)
 	}
 
 	int32 Added = 0;
+	int32 Replaced = 0;
 	for (const UAdaptiveCompanionAction* Action : Companion->Actions)
 	{
 		if (!Action || Action->ActionName.IsNone())
@@ -114,15 +133,40 @@ int32 UCompanionStateTreeCommandlet::Main(const FString& Params)
 		}
 
 		const FName StateName = StateNameFor(Action->ActionName);
-		if (Intervention->Children.ContainsByPredicate([StateName](const UStateTreeState* State) { return State && State->Name == StateName; }))
+		const FString Description = FString::Printf(TEXT("Carries out %s."), *Action->ActionName.ToString());
+		if (const TObjectPtr<UStateTreeState>* Existing = Intervention->Children.FindByPredicate([StateName](const UStateTreeState* State) { return State && State->Name == StateName; }))
 		{
+			// a behavior that exists by now replaces the placeholder; states edited in the editor stay as they are
+			UStateTreeState& State = **Existing;
+			if (HasOnlyPlaceholder(State))
+			{
+				State.Modify();
+				State.Tasks.Reset();
+				if (AddBehaviorTask(State, Action->ActionName))
+				{
+					State.Description = Description;
+					++Replaced;
+					UE_LOG(LogAdaptiveCompanion, Display, TEXT("CompanionStateTree: state %s now carries out its behavior instead of the placeholder."), *StateName.ToString());
+				}
+				else
+				{
+					State.AddTask<FCompanionInterventionPlaceholderTask>();
+				}
+			}
 			continue;
 		}
 
 		UStateTreeState& State = Intervention->AddChildState(StateName);
-		State.Description = FString::Printf(TEXT("Carries out %s. Placeholder until its behavior exists."), *Action->ActionName.ToString());
 		State.AddEnterCondition<FCompanionIsCurrentInterventionCondition>().GetInstanceData().Intervention = Action->ActionName;
-		State.AddTask<FCompanionInterventionPlaceholderTask>();
+		if (AddBehaviorTask(State, Action->ActionName))
+		{
+			State.Description = Description;
+		}
+		else
+		{
+			State.Description = Description + TEXT(" Placeholder until its behavior exists.");
+			State.AddTask<FCompanionInterventionPlaceholderTask>();
+		}
 		++Added;
 		UE_LOG(LogAdaptiveCompanion, Display, TEXT("CompanionStateTree: added state %s for %s."), *StateName.ToString(), *Action->ActionName.ToString());
 	}
@@ -161,7 +205,7 @@ int32 UCompanionStateTreeCommandlet::Main(const FString& Params)
 		return 1;
 	}
 
-	UE_LOG(LogAdaptiveCompanion, Display, TEXT("CompanionStateTree: %d state(s) added, %s compiled and saved."), Added, *StateTree->GetPathName());
+	UE_LOG(LogAdaptiveCompanion, Display, TEXT("CompanionStateTree: %d state(s) added, %d placeholder(s) replaced, %s compiled and saved."), Added, Replaced, *StateTree->GetPathName());
 	return 0;
 #else
 	return 0;

@@ -180,7 +180,7 @@ struct FCompanionInterventionPlaceholderInstanceData
  *  arrived after MaxDuration. Reports "started" and then "completed", "failed" or "interrupted"
  *  (the state was left while it still ran) to the pipeline.
  *  The bark is debug text, so it doesn't show in Shipping builds.
- *  Each action's state uses it until its real behavior exists (#20-#22).
+ *  Action states without a real behavior use it (ThreatCallout and DrawAggro until #21, #22).
  */
 USTRUCT(meta = (DisplayName = "Intervention Placeholder", Category = "Companion"))
 struct FCompanionInterventionPlaceholderTask : public FStateTreeTaskCommonBase
@@ -188,6 +188,105 @@ struct FCompanionInterventionPlaceholderTask : public FStateTreeTaskCommonBase
 	GENERATED_BODY()
 
 	using FInstanceDataType = FCompanionInterventionPlaceholderInstanceData;
+	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
+
+	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+	virtual EStateTreeRunStatus Tick(FStateTreeExecutionContext& Context, const float DeltaTime) const override;
+	virtual void ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+
+#if WITH_EDITOR
+	virtual FText GetDescription(const FGuid& ID, FStateTreeDataView InstanceDataView, const IStateTreeBindingLookup& BindingLookup, EStateTreeNodeFormatting Formatting = EStateTreeNodeFormatting::Text) const override;
+#endif // WITH_EDITOR
+};
+
+////////////////////////////////////////////////////////////////////
+
+class ACompanionPathTrail;
+
+/**
+ *  Instance data struct for the Navigation Hint task
+ */
+USTRUCT()
+struct FCompanionNavigationHintInstanceData
+{
+	GENERATED_BODY()
+
+	/** AI Controller of the companion */
+	UPROPERTY(EditAnywhere, Category = "Context")
+	TObjectPtr<AAIController> Controller;
+
+	/** How far along the path the companion runs ahead of the player */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "cm"))
+	float LeadDistance = 1000.0f;
+
+	/** How much of the path the floor trail shows, from the player on */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "cm"))
+	float TrailLength = 2000.0f;
+
+	/** Speed while running ahead */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "cm/s"))
+	float RunSpeed = 600.0f;
+
+	/** The player counts as following once their path to the objective got this much shorter */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "cm"))
+	float FollowDistance = 500.0f;
+
+	/** The hint stays at least this long, so the player has time to see it */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "s"))
+	float MinDuration = 3.0f;
+
+	/** The hint ends after this long even if the player doesn't follow */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "s"))
+	float MaxDuration = 15.0f;
+
+	/** How often the player's path to the objective is measured */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0.1, Units = "s"))
+	float ProgressCheckInterval = 0.5f;
+
+	/** Text shown above the companion's head */
+	UPROPERTY(EditAnywhere, Category = "Parameter")
+	FString Bark = TEXT("This way!");
+
+	/** How long the bark is shown */
+	UPROPERTY(EditAnywhere, Category = "Parameter", meta = (ClampMin = 0, Units = "s"))
+	float BarkDuration = 3.0f;
+
+	float ElapsedTime = 0.0f;
+	float TimeSinceProgressCheck = 0.0f;
+
+	FName Intervention;
+	FName Objective;
+	FVector ObjectiveLocation = FVector::ZeroVector;
+
+	/** Length of the player's path to the objective when the hint started */
+	float StartPathLength = 0.0f;
+
+	/** Further along the path than the companion's spot, so it faces the way on */
+	FVector LookTarget = FVector::ZeroVector;
+
+	TWeakObjectPtr<ACompanionPathTrail> Trail;
+
+	/** How the task ended, reported in ExitState: completed, failed, or interrupted if the state was left while it still ran */
+	FName Outcome;
+	FString Detail;
+};
+
+/**
+ *  Action.NavigationHint (#20): shows the player the way to the current objective. A trail of discs
+ *  appears on the floor along the navmesh path (the first TrailLength of it), and the companion
+ *  runs LeadDistance ahead along the same path, then turns to face the way on.
+ *
+ *  Completes after MinDuration once the player followed (their path to the objective got
+ *  FollowDistance shorter) or the objective was reached; after MaxDuration it completes anyway.
+ *  The detail says which. Fails if there is no objective or no full path to it. Reports "started"
+ *  and the final phase (or "interrupted") to the pipeline like the placeholder.
+ */
+USTRUCT(meta = (DisplayName = "Navigation Hint", Category = "Companion"))
+struct FCompanionNavigationHintTask : public FStateTreeTaskCommonBase
+{
+	GENERATED_BODY()
+
+	using FInstanceDataType = FCompanionNavigationHintInstanceData;
 	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
 
 	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
