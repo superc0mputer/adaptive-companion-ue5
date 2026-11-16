@@ -39,6 +39,9 @@ namespace AdaptiveLogRecordType
 	inline const FString Objective = TEXT("objective");
 	inline const FString Intervention = TEXT("intervention");
 
+	/** What happened after an intervention: its need and outcome features before, at the end and after (#23) */
+	inline const FString Outcome = TEXT("outcome");
+
 	/** Selection decided: the chosen action or "none", why, and how every action was rated */
 	inline const FString Selection = TEXT("selection");
 

@@ -33,6 +33,9 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
+	/** Broadcast right before session_end is written, so others can log their last records. Game instance subsystems aren't deinitialized in dependency order, so the pipeline can't rely on its own Deinitialize for that */
+	FSimpleMulticastDelegate OnSessionEnding;
+
 	/** Appends one record. Call from the game thread */
 	void LogRecord(const FString& Type, const TSharedRef<FJsonObject>& Payload);
 

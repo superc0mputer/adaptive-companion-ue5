@@ -135,6 +135,9 @@ void UAdaptiveContextStage::RegisterActions(UObject* Handler, const TArray<UAdap
 		Object->SetNumberField(TEXT("base_cost"), Action->BaseCost);
 		Object->SetNumberField(TEXT("intrusiveness"), Action->Intrusiveness);
 		Object->SetNumberField(TEXT("cooldown"), Action->Cooldown);
+		TArray<TSharedPtr<FJsonValue>> OutcomeFeatures;
+		for (const FName Feature : Action->OutcomeFeatures) { OutcomeFeatures.Add(MakeShared<FJsonValueString>(Feature.ToString())); }
+		Object->SetArrayField(TEXT("outcome_features"), OutcomeFeatures);
 		Definitions.Add(MakeShared<FJsonValueObject>(Object));
 	}
 

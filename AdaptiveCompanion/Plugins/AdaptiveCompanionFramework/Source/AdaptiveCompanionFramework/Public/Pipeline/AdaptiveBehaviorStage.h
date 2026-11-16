@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Pipeline/AdaptivePipelineStage.h"
+#include "Pipeline/AdaptiveOutcomeTracker.h"
 #include "AdaptiveBehaviorStage.generated.h"
 
 /** The phases of an intervention. The game may report others; these are the ones the framework knows */
@@ -39,6 +40,10 @@ namespace AdaptiveInterventionPhase
  *  The dispatched intervention counts as running until the game reports a final phase (completed,
  *  failed, interrupted), the handler rejects it, or MaxInterventionDuration passes, so Selection
  *  doesn't start a second one meanwhile. Final phases are logged with the time since dispatch.
+ *
+ *  It also measures each intervention's outcome (#23, FAdaptiveOutcomeTracker): the need it was
+ *  selected for and the action's outcome features at the selection, at the end and over
+ *  OutcomeWindow after the end, logged as an "outcome" record with the intervention's id.
  */
 UCLASS(meta = (DisplayName = "Behavior Stage"))
 class ADAPTIVECOMPANIONFRAMEWORK_API UAdaptiveBehaviorStage : public UAdaptivePipelineStage
@@ -51,6 +56,13 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Behavior", meta = (ClampMin = "1", Units = "s"))
 	float MaxInterventionDuration = 30.f;
 
+	/** The outcome's after values are the mean over this time after the intervention ended. Cut short by the next intervention or a context change */
+	UPROPERTY(EditAnywhere, Category = "Outcome", meta = (ClampMin = "0.1", Units = "s"))
+	float OutcomeWindow = 10.f;
+
+	virtual void Initialize(UAdaptivePipelineSubsystem& InPipeline) override;
+	virtual void Deinitialize() override;
+
 	virtual void Update(FAdaptivePipelineFrame& Frame) override;
 
 	/** The intervention still running at Now, NAME_None if none. Ends it with timed_out after MaxInterventionDuration */
@@ -62,13 +74,33 @@ public:
 	/** The intervention currently running, NAME_None if none (as of the last update or report) */
 	FName GetRunning() const { return Running; }
 
+	/** Outcomes still being measured */
+	const FAdaptiveOutcomeTracker& GetOutcomes() const { return Outcomes; }
+
+	/** Called for every finished outcome, after it is logged. For the tests and anyone analysing outcomes live */
+	TFunction<void(const FAdaptiveOutcome&)> OnOutcome;
+
 protected:
 
 	void LogPhase(FName Intervention, FName Phase, const FString& Detail = FString(), int32 Receivers = INDEX_NONE) const;
+	void LogOutcome(const FAdaptiveOutcome& Outcome) const;
+	void FlushOutcomes();
+	void ShowOutcomes(double Now) const;
 
 	FName Running;
 	double RunningSince = 0.0;
 
 	/** Session time each intervention was last dispatched, for the duration of its final phase */
 	TMap<FName, double> DispatchTimes;
+
+	/** Id of each action's latest intervention, for its phase records */
+	TMap<FName, int32> Ids;
+
+	/** Time of the last update, used for reports outside a session (tests) */
+	double LastUpdateTime = 0.0;
+
+	/** The session time, or the last update's time outside a session */
+	double GetNow() const;
+
+	FAdaptiveOutcomeTracker Outcomes;
 };

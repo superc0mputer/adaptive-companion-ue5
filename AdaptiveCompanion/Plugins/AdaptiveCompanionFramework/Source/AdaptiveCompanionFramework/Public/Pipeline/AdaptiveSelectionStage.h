@@ -79,6 +79,9 @@ protected:
 	/** Session time when each action was last selected */
 	TMap<FName, double> LastSelected;
 
+	/** Id of the next intervention selected */
+	int32 NextInterventionId = 1;
+
 	/** Session time of the last intervention of any kind */
 	double LastInterventionTime = -UE_BIG_NUMBER;
 
