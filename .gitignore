@@ -55,3 +55,7 @@ __pycache__/
 *.fdb_latexmk
 *.bbl
 *.blg
+
+# Replay output, written by -run=AdaptiveReplay
+Recordings/*.replay.json
+Recordings/*.replay.jsonl

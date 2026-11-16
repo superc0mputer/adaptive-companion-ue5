@@ -71,6 +71,9 @@ public:
 	/** Logs a phase of an intervention reported by the game, e.g. "started" or "failed" with a reason in Detail */
 	virtual void ReportPhase(FName Intervention, FName Phase, const FString& Detail = FString());
 
+	/** True if the handler refused the intervention dispatched in the last update */
+	bool WasLastDispatchRejected() const { return bLastDispatchRejected; }
+
 	/** The intervention currently running, NAME_None if none (as of the last update or report) */
 	FName GetRunning() const { return Running; }
 
@@ -89,6 +92,7 @@ protected:
 
 	FName Running;
 	double RunningSince = 0.0;
+	bool bLastDispatchRejected = false;
 
 	/** Session time each intervention was last dispatched, for the duration of its final phase */
 	TMap<FName, double> DispatchTimes;

@@ -7,7 +7,12 @@
 void UAdaptiveTelemetryStage::ReportEvent(FName Name, double Value)
 {
 	const UAdaptivePipelineSubsystem* Pipeline = GetPipeline();
-	PendingEvents.Add({ Name, Value, Pipeline ? Pipeline->GetTime() : 0.0 });
+	ReportEventAt(Name, Value, Pipeline ? Pipeline->GetTime() : 0.0);
+}
+
+void UAdaptiveTelemetryStage::ReportEventAt(FName Name, double Value, double Time)
+{
+	PendingEvents.Add({ Name, Value, Time });
 
 	// logged now rather than at the next update, so the record's timestamp is when it happened
 	LogSignal(TEXT("event"), Name, Value);

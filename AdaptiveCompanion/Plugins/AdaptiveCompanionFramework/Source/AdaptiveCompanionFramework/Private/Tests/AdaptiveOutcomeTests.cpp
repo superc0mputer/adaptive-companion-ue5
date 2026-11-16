@@ -8,14 +8,14 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-namespace
+namespace AdaptiveOutcomeTests
 {
 	constexpr EAutomationTestFlags OutcomeTestFlags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter;
 
-	const FName Threat = TEXT("Threat");
-	const FName Unseen = TEXT("Threat.EnemiesUnseen");
-	const FName Combat = TEXT("Context.Combat");
-	const FName Callout = TEXT("Action.ThreatCallout");
+	const FName OutcomeThreat = TEXT("Threat");
+	const FName OutcomeUnseen = TEXT("Threat.EnemiesUnseen");
+	const FName OutcomeCombat = TEXT("Context.Combat");
+	const FName OutcomeCallout = TEXT("Action.ThreatCallout");
 
 	/** A frame at update Index (10 Hz) with the threat need, the unseen-enemies feature and the combat context */
 	FAdaptivePipelineFrame MakeFrame(int32 Index, double NeedScore, double UnseenValue, bool bCombat = true)
@@ -25,11 +25,11 @@ namespace
 		FAdaptiveNeedState Need;
 		Need.Score = NeedScore;
 		Need.Level = NeedScore >= 0.5 ? EAdaptiveNeedLevel::Elevated : EAdaptiveNeedLevel::Normal;
-		Frame.Needs.Add(Threat, Need);
-		Frame.Features.Add(Unseen, UnseenValue);
+		Frame.Needs.Add(OutcomeThreat, Need);
+		Frame.Features.Add(OutcomeUnseen, UnseenValue);
 		if (bCombat)
 		{
-			Frame.Contexts.Add(Combat);
+			Frame.Contexts.Add(OutcomeCombat);
 		}
 		return Frame;
 	}
@@ -46,6 +46,8 @@ namespace
 	}
 }
 
+using namespace AdaptiveOutcomeTests;
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptiveOutcomeMeasureTest, "AdaptiveCompanion.Pipeline.Outcome.Measure", OutcomeTestFlags)
 
 bool FAdaptiveOutcomeMeasureTest::RunTest(const FString& Parameters)
@@ -55,7 +57,7 @@ bool FAdaptiveOutcomeMeasureTest::RunTest(const FString& Parameters)
 	// 0–1.9 s at 0.6, 2.0 s at 0.8; selected at 2.0 s
 	Run(Tracker, 0, 19, 0.6, 1.0);
 	Run(Tracker, 20, 20, 0.8, 1.0);
-	Tracker.Start(1, Callout, Threat, { Unseen, Unseen, NAME_None }, 2.0);
+	Tracker.Start(1, OutcomeCallout, OutcomeThreat, { OutcomeUnseen, OutcomeUnseen, NAME_None }, 2.0);
 	TestEqual(TEXT("One outcome open"), Tracker.GetOpen().Num(), 1);
 	const FAdaptiveOutcome& Open = Tracker.GetOpen()[0];
 	TestEqual(TEXT("The need first, each feature once"), Open.Measures.Num(), 2);
@@ -65,7 +67,7 @@ bool FAdaptiveOutcomeMeasureTest::RunTest(const FString& Parameters)
 	// running until 3.0 s: nothing finishes, whatever the values
 	TestEqual(TEXT("Nothing finishes while it runs"), Run(Tracker, 21, 30, 0.7, 1.0).Num(), 0);
 	TestFalse(TEXT("No other action's end counts"), Tracker.End(TEXT("Action.Other"), TEXT("completed"), FString(), 3.0));
-	TestTrue(TEXT("Ended"), Tracker.End(Callout, TEXT("completed"), TEXT("threat in view"), 3.0));
+	TestTrue(TEXT("Ended"), Tracker.End(OutcomeCallout, TEXT("completed"), TEXT("threat in view"), 3.0));
 	TestEqual(TEXT("End value: the latest update"), Tracker.GetOpen()[0].Measures[0].End.Get(-1.0), 0.7, 1e-9);
 
 	// 10 s after the end at 0.2 and 0: finishes with the last of them
@@ -92,8 +94,8 @@ bool FAdaptiveOutcomeMeasureTest::RunTest(const FString& Parameters)
 	// a feature without data has no values and no change
 	FAdaptiveOutcomeTracker Missing;
 	Run(Missing, 0, 20, 0.8, 1.0);
-	Missing.Start(2, Callout, Threat, { TEXT("Nav.Unknown") }, 2.0);
-	Missing.End(Callout, TEXT("completed"), FString(), 2.0);
+	Missing.Start(2, OutcomeCallout, OutcomeThreat, { TEXT("Nav.Unknown") }, 2.0);
+	Missing.End(OutcomeCallout, TEXT("completed"), FString(), 2.0);
 	const TArray<FAdaptiveOutcome> NoData = Run(Missing, 21, 120, 0.8, 1.0);
 	if (TestEqual(TEXT("Finishes"), NoData.Num(), 1))
 	{
@@ -113,8 +115,8 @@ bool FAdaptiveOutcomeCutShortTest::RunTest(const FString& Parameters)
 	{
 		FAdaptiveOutcomeTracker Tracker;
 		Run(Tracker, 0, 20, 0.8, 1.0);
-		Tracker.Start(1, Callout, Threat, {}, 2.0);
-		Tracker.End(Callout, TEXT("completed"), FString(), 2.0);
+		Tracker.Start(1, OutcomeCallout, OutcomeThreat, {}, 2.0);
+		Tracker.End(OutcomeCallout, TEXT("completed"), FString(), 2.0);
 		Run(Tracker, 21, 50, 0.4, 0.0);
 		FAdaptivePipelineFrame Next = MakeFrame(51, 0.6, 1.0);
 		Next.Intervention = TEXT("Action.DrawAggro");
@@ -131,8 +133,8 @@ bool FAdaptiveOutcomeCutShortTest::RunTest(const FString& Parameters)
 	{
 		FAdaptiveOutcomeTracker Tracker;
 		Run(Tracker, 0, 20, 0.8, 1.0);
-		Tracker.Start(1, Callout, Threat, {}, 2.0);
-		Tracker.End(Callout, TEXT("completed"), FString(), 2.0);
+		Tracker.Start(1, OutcomeCallout, OutcomeThreat, {}, 2.0);
+		Tracker.End(OutcomeCallout, TEXT("completed"), FString(), 2.0);
 		Run(Tracker, 21, 30, 0.3, 0.0);
 		const TArray<FAdaptiveOutcome> Finished = Run(Tracker, 31, 31, 0.0, 0.0, false);
 		if (TestEqual(TEXT("Context change: finished"), Finished.Num(), 1))
@@ -146,8 +148,8 @@ bool FAdaptiveOutcomeCutShortTest::RunTest(const FString& Parameters)
 	{
 		FAdaptiveOutcomeTracker Tracker;
 		Run(Tracker, 0, 20, 0.8, 1.0);
-		Tracker.Start(1, Callout, Threat, {}, 2.0);
-		Tracker.End(Callout, TEXT("failed"), TEXT("no enemy out of view"), 2.0);
+		Tracker.Start(1, OutcomeCallout, OutcomeThreat, {}, 2.0);
+		Tracker.End(OutcomeCallout, TEXT("failed"), TEXT("no enemy out of view"), 2.0);
 		const TArray<FAdaptiveOutcome> Finished = Run(Tracker, 21, 21, 0.0, 0.0, false);
 		if (TestEqual(TEXT("Finished"), Finished.Num(), 1))
 		{
@@ -163,10 +165,10 @@ bool FAdaptiveOutcomeCutShortTest::RunTest(const FString& Parameters)
 	{
 		FAdaptiveOutcomeTracker Tracker;
 		Run(Tracker, 0, 20, 0.8, 1.0);
-		Tracker.Start(1, Callout, Threat, {}, 2.0);
-		Tracker.End(Callout, TEXT("completed"), FString(), 2.0);
+		Tracker.Start(1, OutcomeCallout, OutcomeThreat, {}, 2.0);
+		Tracker.End(OutcomeCallout, TEXT("completed"), FString(), 2.0);
 		Run(Tracker, 21, 25, 0.8, 1.0);
-		Tracker.Start(2, TEXT("Action.DrawAggro"), Threat, {}, 2.5);
+		Tracker.Start(2, TEXT("Action.DrawAggro"), OutcomeThreat, {}, 2.5);
 		const TArray<FAdaptiveOutcome> Finished = Tracker.Flush(TEXT("session ended"));
 		if (TestEqual(TEXT("Both finished"), Finished.Num(), 2))
 		{
@@ -185,13 +187,13 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAdaptiveOutcomeStageTest, "AdaptiveCompanion.P
 bool FAdaptiveOutcomeStageTest::RunTest(const FString& Parameters)
 {
 	UAdaptiveCompanionAction* Action = NewObject<UAdaptiveCompanionAction>();
-	Action->ActionName = Callout;
-	Action->Relevance.Add(Threat, 1.f);
-	Action->OutcomeFeatures = { Unseen };
+	Action->ActionName = OutcomeCallout;
+	Action->Relevance.Add(OutcomeThreat, 1.f);
+	Action->OutcomeFeatures = { OutcomeUnseen };
 	UAdaptiveTestActionHandler* Handler = NewObject<UAdaptiveTestActionHandler>();
 
 	FAdaptiveActionState State;
-	State.Name = Callout;
+	State.Name = OutcomeCallout;
 	State.Action = Action;
 	State.Handler = Handler;
 	State.bContextAllowed = true;
@@ -224,19 +226,19 @@ bool FAdaptiveOutcomeStageTest::RunTest(const FString& Parameters)
 		Step(Index, 0.8, 1.0, false);
 	}
 	const FAdaptivePipelineFrame Selected = Step(20, 0.8, 1.0, true);
-	TestEqual(TEXT("Selected"), Selected.Intervention, Callout);
+	TestEqual(TEXT("Selected"), Selected.Intervention, OutcomeCallout);
 	TestEqual(TEXT("The first intervention has id 1"), Selected.InterventionId, 1);
 	if (!TestEqual(TEXT("Its outcome is open"), Behavior->GetOutcomes().GetOpen().Num(), 1))
 	{
 		return false;
 	}
-	TestEqual(TEXT("For the need the selection chose"), Behavior->GetOutcomes().GetOpen()[0].Need, Threat);
+	TestEqual(TEXT("For the need the selection chose"), Behavior->GetOutcomes().GetOpen()[0].Need, OutcomeThreat);
 	TestEqual(TEXT("With the action's outcome feature"), Behavior->GetOutcomes().GetOpen()[0].Measures.Num(), 2);
 
-	Behavior->ReportPhase(Callout, TEXT("started"));
+	Behavior->ReportPhase(OutcomeCallout, TEXT("started"));
 	TestFalse(TEXT("Started doesn't end it"), Behavior->GetOutcomes().GetOpen()[0].HasEnded());
 	Step(21, 0.6, 1.0, false);
-	Behavior->ReportPhase(Callout, TEXT("completed"), TEXT("threat in view"));
+	Behavior->ReportPhase(OutcomeCallout, TEXT("completed"), TEXT("threat in view"));
 	TestTrue(TEXT("Completed ends it"), Behavior->GetOutcomes().GetOpen()[0].HasEnded());
 	for (int32 Index = 22; Index <= 71; ++Index)
 	{

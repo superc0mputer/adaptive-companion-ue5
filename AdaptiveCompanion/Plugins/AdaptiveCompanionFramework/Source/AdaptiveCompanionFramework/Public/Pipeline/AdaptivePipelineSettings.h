@@ -27,6 +27,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (EditCondition = "bEnabled"))
 	TSoftObjectPtr<UAdaptivePipelineConfig> Config;
 
+	/** Writes what the game gives the pipeline at every update into the session log (input records), so the session can be replayed without the game (#24). About 3 KB/s */
+	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (EditCondition = "bEnabled"))
+	bool bRecordInputs = true;
+
 	/** Loads the selected config asset, or returns the defaults if none is selected or it can't be loaded */
 	const UAdaptivePipelineConfig* LoadConfig() const;
 };

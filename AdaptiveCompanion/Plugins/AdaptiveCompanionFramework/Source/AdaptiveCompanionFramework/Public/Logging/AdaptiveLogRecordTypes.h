@@ -39,6 +39,10 @@ namespace AdaptiveLogRecordType
 	inline const FString Objective = TEXT("objective");
 	inline const FString Intervention = TEXT("intervention");
 
+	/** Replay (#24): the recording's format at session start, then what the game gave the pipeline at every update */
+	inline const FString RecordingStart = TEXT("recording_start");
+	inline const FString Input = TEXT("input");
+
 	/** What happened after an intervention: its need and outcome features before, at the end and after (#23) */
 	inline const FString Outcome = TEXT("outcome");
 

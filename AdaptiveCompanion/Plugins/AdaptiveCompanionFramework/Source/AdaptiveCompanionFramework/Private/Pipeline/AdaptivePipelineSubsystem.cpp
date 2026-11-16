@@ -68,6 +68,15 @@ void UAdaptivePipelineSubsystem::Initialize(FSubsystemCollectionBase& Collection
 		Payload->SetBoolField(TEXT("pause_with_game"), Config->bPauseWithGame);
 		Payload->SetArrayField(TEXT("stages"), StageClasses);
 		Log->LogRecord(AdaptiveLogRecordType::PipelineStart, Payload);
+
+		bRecording = GetDefault<UAdaptivePipelineSettings>()->bRecordInputs;
+		if (bRecording)
+		{
+			TSharedRef<FJsonObject> Recording = MakeShared<FJsonObject>();
+			Recording->SetNumberField(TEXT("format"), AdaptiveRecording::FormatVersion);
+			Recording->SetNumberField(TEXT("update_rate"), GetUpdateRate());
+			Log->LogRecord(AdaptiveLogRecordType::RecordingStart, Recording);
+		}
 	}
 
 	// after pipeline_start, so records the stages write while initializing (feature definitions) follow it
@@ -177,6 +186,12 @@ bool UAdaptivePipelineSubsystem::GetCurrentObjective(FName& Name, FVector& Locat
 
 void UAdaptivePipelineSubsystem::ReportInterventionPhase(FName Intervention, FName Phase, const FString& Detail)
 {
+	if (bRecording)
+	{
+		// phases reported while an update runs (e.g. "started" from PerformAction) are replayed after it, the others before the next one
+		(bUpdating ? PhasesDuring : PhasesBefore).Add({ Intervention, Phase, Detail, GetTime() });
+	}
+
 	if (Behavior)
 	{
 		Behavior->ReportPhase(Intervention, Phase, Detail);
@@ -196,10 +211,20 @@ void UAdaptivePipelineSubsystem::Update()
 	Frame.DeltaTime = UpdateCount > 0 ? Now - LastUpdateTime : 0.0;
 	Frame.RunningIntervention = Behavior ? Behavior->UpdateRunning(Now) : NAME_None;
 
+	bUpdating = true;
 	for (UAdaptivePipelineStage* Stage : Stages)
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE_TEXT(*Stage->GetClass()->GetName());
 		Stage->Update(Frame);
+	}
+	bUpdating = false;
+
+	if (bRecording && Log)
+	{
+		const FAdaptiveRecordedUpdate Recorded = Recorder.Record(Frame, MoveTemp(PhasesBefore), MoveTemp(PhasesDuring), Behavior && Behavior->WasLastDispatchRejected());
+		PhasesBefore.Reset();
+		PhasesDuring.Reset();
+		Log->LogRecord(AdaptiveLogRecordType::Input, AdaptiveRecording::ToJson(Recorded));
 	}
 
 	++UpdateCount;
