@@ -163,8 +163,9 @@ assets in `Content/Companion/`.
 | `Content/Companion/Actions/DA_Action_*`, `CompanionActions.h` | The companion's actions (`UAdaptiveCompanionAction` assets) and their names ([PIPELINE.md](PIPELINE.md#companion-actions)) |
 | `ACompanionAIController` | Runs the StateTree assigned on the possessed companion (`UStateTreeAIComponent`) and forwards events to it. Registers the companion's actions with the pipeline while it controls the companion, answers whether each is possible and starts the selected one's state in the Intervention branch (`IAdaptiveCompanionActionHandler`) |
 | `ST_Companion` | StateTree (schema *StateTree AI Component*) that decides what the companion does |
-| `CompanionStateTreeTasks` | C++ StateTree nodes: tasks *Follow Player*, *Reposition Near Player*, *Navigation Hint*, *Intervention Placeholder*, *Report Intervention Failed*; conditions *Player Further Than*, *Companion Hidden From Player*, *Is Current Intervention* |
+| `CompanionStateTreeTasks` | C++ StateTree nodes: tasks *Follow Player*, *Reposition Near Player*, *Navigation Hint*, *Threat Callout*, *Intervention Placeholder*, *Report Intervention Failed*; conditions *Player Further Than*, *Companion Hidden From Player*, *Is Current Intervention* |
 | `ACompanionPathTrail` | The navigation hint's trail of cyan discs on the floor along a path; spawned and destroyed by the *Navigation Hint* task |
+| `SCompanionThreatIndicator`, `ACompanionThreatMarker` | The threat call-out's cues: the red arrow at the screen edge (Slate, added to the game viewport) and the red cone above the enemy; created and removed by the *Threat Callout* task |
 | `UCompanionStateTreeCommandlet` | `-run=CompanionStateTree`: adds a state per companion action to `ST_Companion`'s Intervention branch and gives it the action's behavior task (editor only) |
 | `CompanionVisibility` | `IsVisibleToPlayer`: field of view + line of sight test against the player's camera |
 | `UCompanionSpawnSubsystem` | Spawns the companion next to the player in every game level that has none |
@@ -190,7 +191,7 @@ Root                       On Event Companion.Event.Intervention → Interventio
    ├─ NavigationHint        Enter condition: Is Current Intervention Action.NavigationHint
    │                        Navigation Hint                 (#20)
    ├─ ThreatCallout         Enter condition: Is Current Intervention Action.ThreatCallout
-   │                        Intervention Placeholder        (until #21)
+   │                        Threat Callout                  (#21)
    ├─ DrawAggro             Enter condition: Is Current Intervention Action.DrawAggro
    │                        Intervention Placeholder        (until #22)
    └─ UnknownAction         Report Intervention Failed      (catches actions without a state)
@@ -209,8 +210,9 @@ Root                       On Event Companion.Event.Intervention → Interventio
   the action's name and sends that event; the children are tried in order, and *Is Current
   Intervention* lets in the one for that name. *UnknownAction*, the last child, reports actions
   without a state as `failed`. When a child completes or fails, the branch goes back to Default.
-- *NavigationHint* runs the *Navigation Hint* task ([below](#navigation-hint)). Until their
-  behaviors exist (#21, #22), the other action states run the *Intervention Placeholder* task:
+- *NavigationHint* runs the *Navigation Hint* task ([below](#navigation-hint)), *ThreatCallout* the
+  *Threat Callout* task ([below](#threat-call-out)). Until its behavior exists (#22), *DrawAggro*
+  runs the *Intervention Placeholder* task:
   the companion runs to the player (750 cm/s), shows a text bark above its head ("Hang in there,
   I'm coming!" and the action's name; debug text, so not in Shipping) and reports `started`, then
   `completed` once it arrived and 2 s passed, `failed` if it hasn't arrived after 6 s, or
@@ -220,7 +222,7 @@ Root                       On Event Companion.Event.Intervention → Interventio
   action on the companion class that doesn't have one yet, with the action's behavior task (or the
   placeholder if it has none yet), keeps *UnknownAction* last, moves the branch's own tasks away,
   compiles and saves `ST_Companion`. A state whose only task is still the placeholder gets the
-  behavior task once one exists (#20 replaced NavigationHint's this way). Any other state is left
+  behavior task once one exists (#20 and #21 replaced NavigationHint's and ThreatCallout's this way). Any other state is left
   alone, so tasks set up in the editor survive; a new action is an asset plus one run.
 - `Companion.TriggerIntervention [Action]` starts an action's state without the pipeline for
   testing.
@@ -255,6 +257,42 @@ The player's progress is measured as path length, every 0.5 s. The straight-line
 miss progress along a detour and count walking into a dead end that happens to be closer.
 
 ![The trail along the corridor and the companion standing on it, 10 m ahead of the player](images/navigation-hint.png)
+
+### Threat call-out
+
+`Action.ThreatCallout` (#21) warns the player about the enemy they don't see. It picks the nearest
+living enemy within the combat radius (15 m) whose center is outside the camera's view, the same
+test as `Combat.EnemiesOutOfView` (`UCameraInputTelemetrySubsystem::IsInCameraView`). That is the
+threat need's "an enemy close and out of view". Three cues at once:
+
+- **An arrow at the screen edge.** Two pulsing red chevrons just inside the edge, in the enemy's
+  direction (forward is up, so an enemy behind the player puts them at the bottom), with
+  "Behind you!" (more than 135° from the view direction), "Left!" or "Right!" on a dark box
+  (`SCompanionThreatIndicator`). Hidden as soon as the enemy is in view. Plain Slate on the game
+  viewport, so unlike the debug-text barks it shows in every build, the study build included.
+- **A marker on the enemy.** A red cone above its head (`ACompanionThreatMarker`), so after turning
+  the player knows which enemy was meant, even with four in the arena.
+- **The companion reacts.** It stops and turns to face the enemy, with the same words as a bark.
+
+| Ends | Phase | Detail |
+|---|---|---|
+| The enemy is in the camera's view, whether the player turned or the enemy walked in | `completed` | `threat in view` |
+| The enemy died or left the combat radius, or the player died | `completed` | `threat gone` |
+| 5 s passed | `completed` | `player didn't look` |
+| No enemy out of view at the start | `failed` | `no enemy out of view` |
+| The state was left early | `interrupted` | |
+
+Arrow and marker are removed in every case. The detail says *in view* rather than *player looked*,
+because the frustum test can't tell who moved; the time to `threat in view` is the `duration` in
+the log.
+
+**Why an on-screen arrow** and not only the companion: the threat is by definition out of view, and
+so is the companion more often than not, so a cue that lives in the world (a bark, a gesture) would
+often be missed exactly when it matters. Direction indicators at the screen edge are the established
+way to show off-screen threats in third-person games. The companion still turns to the enemy, so
+the help stays the companion's.
+
+![The red arrow at the screen edge with "Left!": the enemy is to the left of the player, outside the view](images/threat-callout.png)
 
 ### Spawning and navigation in the template levels
 

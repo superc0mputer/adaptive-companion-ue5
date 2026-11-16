@@ -861,8 +861,9 @@ check, a path search, is throttled by the game).
 
 Assets in `Content/Companion/Actions/`, listed on `BP_Companion` (*Companion › Actions*) and
 registered by `ACompanionAIController` while it controls the companion. Their behaviors: the
-navigation hint since #20 ([ARCHITECTURE.md](ARCHITECTURE.md#navigation-hint)); the other two are
-still placeholders until #21 and #22.
+navigation hint since #20 ([ARCHITECTURE.md](ARCHITECTURE.md#navigation-hint)), the threat call-out
+since #21 ([ARCHITECTURE.md](ARCHITECTURE.md#threat-call-out)); drawing aggro is still a placeholder
+until #22.
 
 | Action | Relevance | Context | Cost, intrusiveness, cooldown | Possible when |
 |---|---|---|---|---|
@@ -1113,7 +1114,8 @@ was possible, and a refusal that ends up in the log. The broadcast remains for o
 **In this game** `ACompanionAIController::PerformAction` stores the action's name and sends the
 StateTree event that enters the Intervention branch, which picks the action's own state
 ([ARCHITECTURE.md](ARCHITECTURE.md#statetree-layout)). The navigation hint reports `completed`
-with how it ended: `player followed`, `objective reached` or `player didn't follow`. It returns false while the companion has no
+with how it ended: `player followed`, `objective reached` or `player didn't follow`; the threat
+call-out with `threat in view`, `threat gone` or `player didn't look`. It returns false while the companion has no
 pawn or no running StateTree.
 
 ## Update rate

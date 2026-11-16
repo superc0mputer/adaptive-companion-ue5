@@ -106,6 +106,11 @@ path to the current objective, and the companion runs ahead on it and faces the 
 once the player follows, reaches the objective, or after 15 s, and the log says which. Details:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#navigation-hint).
 
+The threat call-out warns about the nearest enemy the player doesn't see: a pulsing red arrow at
+the screen edge points at it ("Behind you!", "Left!", "Right!"), a red cone marks the enemy, and the
+companion turns to face it. It ends when the enemy is in view, is gone, or after 5 s. Details:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#threat-call-out).
+
 For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
 where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
 written to the session log. `Lvl_NavigationScenario` is a maze with four objectives in a row,
