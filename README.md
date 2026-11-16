@@ -116,6 +116,12 @@ leads them 7 m away, where they fight it (it takes no damage) for 12 s before go
 player. In the four-enemy wave this nearly halved the enemies around a player standing still (2.29 → 1.22).
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#draw-aggro).
 
+After each intervention the framework logs its outcome: the need it was selected for and a few
+values that show the action's effect (e.g. enemies out of view for the call-out), at the
+selection, at the end and over the 10 s after, and whether the need went back to Normal. Every
+intervention has an id that links its phases and its outcome. Outcomes are only logged, so every
+session uses the same selection. Details: [docs/PIPELINE.md](docs/PIPELINE.md#intervention-outcomes).
+
 For repeatable tests there is a combat scenario: `Content/Scenarios/Lvl_CombatScenario`, an arena
 where waves of 1, 2 and then 4 enemies attack, the last one from both sides. Its phases are
 written to the session log. `Lvl_NavigationScenario` is a maze with four objectives in a row,

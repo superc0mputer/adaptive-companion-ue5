@@ -130,6 +130,9 @@ struct FAdaptivePipelineFrame
 	/** 5 Selection: the intervention to start in this update, NAME_None for none */
 	FName Intervention;
 
+	/** 5 Selection: Intervention's id, counting from 1 within the session; links its intervention and outcome records */
+	int32 InterventionId = 0;
+
 	/** 5 Selection: every registered action's evaluation, in the order of Actions */
 	TArray<FAdaptiveActionEvaluation> Evaluations;
 

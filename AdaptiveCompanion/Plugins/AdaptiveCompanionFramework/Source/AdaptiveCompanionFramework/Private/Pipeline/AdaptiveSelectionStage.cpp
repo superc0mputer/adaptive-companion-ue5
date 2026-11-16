@@ -119,6 +119,7 @@ void UAdaptiveSelectionStage::Decide(FAdaptivePipelineFrame& Frame)
 	else
 	{
 		Frame.Intervention = Best->Action;
+		Frame.InterventionId = NextInterventionId++;
 		Frame.SelectionReason = FString::Printf(TEXT("highest utility for %s"), *Best->Need.ToString());
 		LastSelected.Add(Best->Action, Frame.Time);
 		LastInterventionTime = Frame.Time;
@@ -179,6 +180,7 @@ void UAdaptiveSelectionStage::Log(const FAdaptivePipelineFrame& Frame, const FSt
 	// the intervention's first phase, so its record sequence starts here as before
 	const FAdaptiveActionEvaluation* Chosen = Frame.Evaluations.FindByPredicate([&Frame](const FAdaptiveActionEvaluation& Evaluation) { return Evaluation.Action == Frame.Intervention; });
 	TSharedRef<FJsonObject> Selected = MakeShared<FJsonObject>();
+	Selected->SetNumberField(TEXT("id"), Frame.InterventionId);
 	Selected->SetStringField(TEXT("name"), Frame.Intervention.ToString());
 	Selected->SetStringField(TEXT("phase"), TEXT("selected"));
 	if (Chosen)

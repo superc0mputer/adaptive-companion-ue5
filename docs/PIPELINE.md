@@ -15,7 +15,7 @@ API the game reports telemetry through. It is part of the framework plugin
 | 3 | Assistance Need | `UAdaptiveNeedStage` | Scores the need dimensions with a swappable estimator, rule-based by default ([Assistance need](#assistance-need)), smooths them and maps them to levels ([Need levels](#need-levels)) |
 | 4 | Context | `UAdaptiveContextStage` | Holds the contexts the game reports ([Gameplay context](#gameplay-context)), which gate the need dimensions, and checks which companion actions are possible ([Companion actions](#companion-actions)) |
 | 5 | Intervention Selection | `UAdaptiveSelectionStage` | Rates every available action with the exposé's utility and picks the best, or decides to do nothing ([Intervention selection](#intervention-selection)) |
-| 6 | Behavior | `UAdaptiveBehaviorStage` | Hands the selected action to its handler, logs every phase with its time, and tracks it as running until it ends ([Carrying out actions](#carrying-out-actions)) |
+| 6 | Behavior | `UAdaptiveBehaviorStage` | Hands the selected action to its handler, logs every phase with its time, tracks it as running until it ends ([Carrying out actions](#carrying-out-actions)), and measures what happened after it ([Intervention outcomes](#intervention-outcomes)) |
 
 Every update, `UAdaptivePipelineSubsystem` creates one `FAdaptivePipelineFrame` and passes it
 through the stages. Each stage reads what the stages before it wrote and adds its own output.
@@ -807,6 +807,7 @@ An action is a `UAdaptiveCompanionAction` data asset:
 | Base Cost | 0–1, used when the game reports no current cost | C |
 | Intrusiveness | 0–1: how much it takes over from the player | I |
 | Cooldown | Minimum time between two uses (s) | enforced in #18 |
+| Outcome Features | Features that show whether it helped, logged in its outcome ([Intervention outcomes](#intervention-outcomes), #23) | not used |
 
 The game registers its actions with `RegisterActions(Handler, Actions)` and removes them with
 `UnregisterActions(Handler)` (C++ and Blueprint). The handler implements
@@ -1118,6 +1119,122 @@ with how it ended: `player followed`, `objective reached` or `player didn't foll
 call-out with `threat in view`, `threat gone` or `player didn't look`; drawing aggro with how many enemies it drew (`drew 2 of 4 enemies`), `enemies defeated` or `player died`. It returns false while the companion has no
 pawn or no running StateTree.
 
+## Intervention outcomes
+
+Since #23 the Behavior stage measures what happens after each intervention: whether the need it
+was selected for went down, whether the values that show the action's effect went down, and how
+the companion said it ended. Outcomes are only logged; they don't change later decisions.
+
+```
+selected ─────── running ─────── final phase ───── after window (10 s) ─────▶ outcome record
+baseline                         end values         mean of every update        (id, need, measures,
+(values at the selection)        (latest update)    cut short by: next           relieved, cut_short)
+                                                    intervention, context change, session end
+```
+
+### Definition
+
+Every intervention gets an **id** from Selection, counting from 1 within the session. It is on all
+of its `intervention` records and on its `outcome` record, so the two can be joined even when
+the same action runs many times.
+
+Each outcome compares several **measures**:
+
+| Measure | From |
+|---|---|
+| The need the intervention was selected for (its smoothed score) | `need` of the `selected` phase |
+| The action's *Outcome Features*, e.g. `Threat.EnemiesUnseen` for the call-out | the action asset (`UAdaptiveCompanionAction::OutcomeFeatures`) |
+
+All of them are "lower is better", like every feature and need. Each measure has three values:
+
+| Value | |
+|---|---|
+| `baseline` | at the selection |
+| `end` | at the last update before the final phase (`completed`, `failed`, `interrupted`, `rejected`, `timed_out`) |
+| `after` | the mean over the *Outcome Window* (10 s) after the end |
+
+From these come `change` (after − baseline) and `end_change` (end − baseline), plus the need's
+level at each point. The need is **relieved** if it was back to Normal at the last update measured.
+
+The after window is **cut short** when what follows no longer shows this intervention's effect
+alone. The outcome is then logged at once, with what was measured so far and the reason in
+`cut_short`:
+
+| Reason | |
+|---|---|
+| `next intervention` | Selection picked another intervention |
+| `context changed` | The active contexts differ from those at the end, e.g. the fight is over |
+| `session ended` | The game quits; logged right before `session_end` |
+
+### Decisions
+
+| Question | Decision | Why |
+|---|---|---|
+| What counts as an outcome | The selected need, the action's outcome features, and the phase and detail the game reported | The need is what the framework tries to lower, so it is the common measure for every action. It moves slowly and also reacts to other things, so each action adds the features that show its own effect directly. The detail says what the companion saw (`player followed`) |
+| Which features | Chosen per action in its asset | The framework doesn't know what an action does; the game does. A game without the setting still gets the need |
+| Baseline | The values at the selection | The need is smoothed and the features are averaged over their windows already. A first version took the mean over the 2 s before the selection, but that lagged behind a need that had just risen: a call-out selected at 0.53 got a baseline of 0.26, and its change looked like the need had gone up |
+| When it is measured | At the end and over 10 s after the end, not at a fixed time after the selection | The behaviors last from 0.1 s (a call-out the player answers at once) to 15 s (a hint nobody follows). 10 s is long enough for a smoothed need to fall back (its fall half-life is 3 s) and short enough that the next intervention rarely starts first in a calm stretch |
+| Overlaps | Cut short, flagged, still logged | Mixing the next intervention's effect into this one's would credit the wrong action. Dropping them would hide exactly the cases where help didn't work: then the need stays up and the next intervention starts at once. `end_change` still describes those |
+| Effect on later decisions | None, only logged | In the pilot study every participant should get the same selection, so sessions stay comparable. With 5–10 participants and a few interventions each, the outcomes are also too few and too noisy to learn from |
+
+**Limits.** A falling need after an intervention doesn't prove that the intervention lowered it:
+needs fall by themselves once a problem passes. Comparing with runs without the companion, as for
+drawing aggro ([ARCHITECTURE.md](ARCHITECTURE.md#draw-aggro)), is the real test (#25, #27). The
+records hold what a later *Effectiveness* term in the utility would need, e.g. the share of an
+action's recent outcomes that relieved its need, should the selection learn from outcomes after all.
+
+### Outcome features in this game
+
+| Action | Outcome features | Why |
+|---|---|---|
+| `Action.NavigationHint` | `Nav.NoProgress`, `Nav.Misalignment`, `Nav.StandingStill` | A followed hint means moving again, toward the objective |
+| `Action.ThreatCallout` | `Threat.EnemiesUnseen`, `Threat.Proximity` | The enemy is in view, or no longer close |
+| `Action.DrawAggro` | `Threat.EnemiesNear`, `Combat.DamageRecent` | Fewer enemies around the player, less damage |
+
+The *Outcome Window* is on the Behavior stage in `DA_PipelineConfig`.
+
+### Logging and overlay
+
+An `outcome` record per intervention, written when its window ends:
+
+```json
+{"id":1,"name":"Action.NavigationHint","need":"Disorientation","phase":"completed","detail":"player followed",
+ "duration":3.071,"after_duration":10.034,"cut_short":"",
+ "level":{"baseline":"Elevated","end":"Elevated","after":"Normal"},"relieved":true,
+ "measures":{
+  "Disorientation":{"kind":"need","baseline":0.528,"end":0.711,"after":0.407,"change":-0.121,"end_change":0.183},
+  "Nav.NoProgress":{"kind":"feature","baseline":1,"end":0.609,"after":0.092,"change":-0.908,"end_change":-0.391},
+  "Nav.Misalignment":{"kind":"feature","baseline":0.5,"end":0.321,"after":0.096,"change":-0.404,"end_change":-0.179},
+  "Nav.StandingStill":{"kind":"feature","baseline":1,"end":0.642,"after":0.241,"change":-0.759,"end_change":-0.358}}}
+```
+
+`duration` is from the selection to the final phase, `after_duration` how much of the window was
+measured. Values without data, and `after` and `change` of a window cut short before its first
+update, are `null`. Measures are keyed by name, so `pd.json_normalize` gives columns like
+`measures.Disorientation.change`.
+
+Section *6 Behavior* shows the last outcome (`#1 Action.NavigationHint: Disorientation 0.50 → 0.38,
+relieved · Nav.NoProgress …`, the value after or, if there is none, at the end) and the ones
+still being measured (`#2 running`, `#1 6 s left`).
+
+![The overlay after a followed hint: the disorientation need went back to Normal, the player moves toward the objective again](images/intervention-outcomes.png)
+
+### Verification
+
+Automation tests `AdaptiveCompanion.Pipeline.Outcome.Measure` (baseline, end and after values,
+change, relieved, the full window, a feature without data), `.Outcome.CutShort` (next
+intervention, context change, cut short right after the end, session end with a running and a
+measuring outcome) and `.Outcome.Stage` (ids from Selection, the need from the selection, the
+action's outcome features, ends reported by the game, a rejected intervention).
+
+Scripted `-game` runs, every intervention selected by the pipeline itself:
+
+| Run | Outcome |
+|---|---|
+| Maze: standing and looking around until the hint, then walking the path | `player followed` after 3.1 s; full 10 s window; Disorientation 0.53 → 0.41, back to Normal (relieved); `Nav.NoProgress` 1 → 0.09, `Nav.StandingStill` 1 → 0.24 |
+| Maze: the same, but ignoring the hint | `player didn't follow` after 15 s; the hint is selected again at once (Disorientation High, 0.84), so the window is cut short (`next intervention`) with no after values; `end_change` +0.33: it got worse while the hint ran. Three hints in a row, none relieved |
+| Arena, player standing still | Call-outs (`threat in view`, `player didn't look`, `threat gone`) and drawing aggro (`drew 2 of 4 enemies`). With four enemies and a player who never fights, the threat need stays High, so none was relieved; the call-out after drawing aggro was cut short when the wave ended (`context changed`), the last one when the game quit (`session ended`, written before `session_end`) |
+
 ## Update rate
 
 The stages run at *Update Rate* (default 10 Hz), not every frame. Updates are due every
@@ -1146,6 +1263,7 @@ Companion Pipeline (`UAdaptivePipelineSettings`, saved to `DefaultGame.ini`).
 | Need › Levels, Dimension Levels | see [Need levels](#need-levels) | Smoothing half-lives and level thresholds, for all dimensions and per dimension |
 | Selection › Weights, Min Utility, Min Time Between Interventions, Repetition Half Life | see [Intervention selection](#intervention-selection) | The utility's weights, the threshold for doing anything, the frequency limit, how fast the repetition penalty fades |
 | Behavior › Max Intervention Duration | 30 s | An intervention whose end the game doesn't report counts as finished after this time |
+| Behavior › Outcome Window | 10 s | How long after an intervention its outcome is measured ([Intervention outcomes](#intervention-outcomes)) |
 
 The stage objects in the asset are templates: each session creates its own copies, so stages can
 keep state. Without a selected asset (or if it can't be loaded) the pipeline runs with the
@@ -1170,7 +1288,8 @@ The pipeline adds these record types to the session log ([LOGGING.md](LOGGING.md
 | `action_availability` | When an action's availability or reason changed | `name`, `available`, `reason`, `cost`, `suitability` |
 | `action_unregistered` | When an action is removed | `name`, `reason` (`unregistered` or `handler destroyed`) |
 | `selection` | When an action is selected, and when "do nothing" or its reason changes | `decision` (action or `none`), `reason`, `candidates` (per action: `utility`, `need` and the terms, or `excluded`) |
-| `intervention` | At every phase of an intervention | `name`, `phase`; `selected` adds `need`, `score`, `level` and `utility`, final phases add `duration` (s since dispatch), `failed` and `rejected` add `detail` (why), and so can `completed` (e.g. the navigation hint's `player followed`) ([Carrying out actions](#carrying-out-actions)) |
+| `intervention` | At every phase of an intervention | `id` (since #23), `name`, `phase`; `selected` adds `need`, `score`, `level` and `utility`, final phases add `duration` (s since dispatch), `failed` and `rejected` add `detail` (why), and so can `completed` (e.g. the navigation hint's `player followed`) ([Carrying out actions](#carrying-out-actions)) |
+| `outcome` | When an intervention's after window ends or is cut short | `id`, `name`, `need`, `phase`, `detail`, `duration`, `after_duration`, `cut_short`, `level` (`baseline`, `end`, `after`), `relieved`, `measures` (per need or feature: `kind`, `baseline`, `end`, `after`, `change`, `end_change`) ([Intervention outcomes](#intervention-outcomes)) |
 
 The phases are `selected` (Selection), `dispatched` (Behavior, right before `OnIntervention`) and
 whatever the game reports; the companion reports `started`, then `completed`, `failed` or `interrupted`.
@@ -1211,7 +1330,7 @@ every feature as a bar, *3 Assistance Need* every need dimension's smoothed scor
 level, raw score and strongest rule (or *inactive in this context*), *5* the decision with its
 reason, every action's utility and terms or why it is no candidate, and the last selected action,
 and *6* the latest phase of each intervention with its time, the duration for final phases and the
-reason for failures. `ac.Debug.Sections 3 5 6` shows only some sections, e.g. for screenshots.
+reason for failures, plus the last outcome and the ones still being measured. `ac.Debug.Sections 3 5 6` shows only some sections, e.g. for screenshots.
 *4 Context* shows every context the game reported, active or inactive, and since when, and every
 registered companion action with its availability.
 
@@ -1250,7 +1369,8 @@ destroyed handler), `.Actions.Availability` (context first, the game's answer, r
 `.Context` (set, change flag,
 repeated and no-op calls), `.Objective`, `.Selection.Utility`, `.Selection.Nothing`, `.Selection.Repetition`,
 `.Selection.Running` (handler called, final phases, timeout, rejected; see
-[Intervention selection](#intervention-selection)) and `.Config`
+[Intervention selection](#intervention-selection)), `.Outcome.Measure`, `.Outcome.CutShort`, `.Outcome.Stage`
+([Intervention outcomes](#intervention-outcomes)) and `.Config`
 (default stages):
 
 ```bash

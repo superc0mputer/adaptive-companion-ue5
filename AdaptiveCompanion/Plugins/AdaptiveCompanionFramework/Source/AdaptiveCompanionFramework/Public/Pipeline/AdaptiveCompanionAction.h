@@ -56,6 +56,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Selection", meta = (ClampMin = "0", Units = "s"))
 	float Cooldown = 10.f;
 
+	/** Features that show whether the action helped, besides the need it was selected for, e.g. Threat.EnemiesUnseen for a threat call-out. Lower counts as better for all of them. Logged in its outcome (#23) */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Outcome")
+	TArray<FName> OutcomeFeatures;
+
 	/** True if the contexts allow the action. Otherwise Reason says which context is missing or blocks it */
 	bool AllowsContexts(const TSet<FName>& ActiveContexts, FString& OutReason) const;
 

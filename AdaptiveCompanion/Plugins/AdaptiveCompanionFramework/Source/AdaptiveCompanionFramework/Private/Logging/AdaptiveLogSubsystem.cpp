@@ -137,6 +137,9 @@ void UAdaptiveLogSubsystem::Deinitialize()
 
 	if (Writer.IsOpen())
 	{
+		OnSessionEnding.Broadcast();
+		OnSessionEnding.Clear();
+
 		TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
 		Payload->SetNumberField(TEXT("duration"), GetSessionTime());
 		// includes this record
