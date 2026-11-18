@@ -26,6 +26,9 @@ public:
 	bool bLogEveryUpdate = false;
 
 	virtual void ReportEvent(FName Name, double Value);
+
+	/** Same with the time it happened, e.g. from a recording */
+	virtual void ReportEventAt(FName Name, double Value, double Time);
 	virtual void ReportValue(FName Name, double Value);
 
 	virtual void Update(FAdaptivePipelineFrame& Frame) override;

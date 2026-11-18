@@ -73,6 +73,17 @@ Game-specific assets live in `Content/Companion/`, which is allow-listed in `.gi
 
 Stages, telemetry API, update rate and config: [PIPELINE.md](PIPELINE.md).
 
+### Record and replay
+
+| Class | Role |
+|---|---|
+| `FAdaptiveInputRecorder`, `FAdaptiveRecordedUpdate` | Turns each update's frame into an `input` record with what the game gave the pipeline, only what changed; reads it back |
+| `UAdaptiveReplayRunner`, `UAdaptiveReplayActionHandler` | Runs fresh stages from a config asset on recorded updates, without a game instance; the handler answers for the game as recorded |
+| `FAdaptiveReplayLabels`, `FAdaptiveReplayEvaluation`, `FAdaptiveLiveComparison` | Labeled intervals and the agreement with them (per need, detection delay, fitting action); the comparison with what the live session logged |
+| `UAdaptiveReplayCommandlet` | `-run=AdaptiveReplay`: replays a session log twice, compares, writes the results |
+
+Recording, replay, labels and the example recordings: [REPLAY.md](REPLAY.md).
+
 ### Session logging
 
 | Class | Role |

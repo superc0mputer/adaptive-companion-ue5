@@ -50,6 +50,8 @@ NaN and infinity in a payload are written as `null`, so every line stays valid J
 | `feature_definitions` | Feature stage, right after `pipeline_start` | `features`: every feature's definition ([PIPELINE.md](PIPELINE.md#features)) |
 | `need_definitions` | Need stage, after `feature_definitions` | `estimator` (class), `levels` and `dimension_levels` (smoothing and thresholds, [PIPELINE.md](PIPELINE.md#need-levels)), and the estimator's definitions; rule-based: `dimensions` with their `rules`, `required_contexts`, `requires_objective` ([PIPELINE.md](PIPELINE.md#assistance-need)) |
 | `marker` | `ac.Log.Marker <text>` | `text` |
+| `recording_start` | Pipeline, after `pipeline_start`, with *Record Inputs* on | `format` (version of the input record), `update_rate` ([REPLAY.md](REPLAY.md)) |
+| `input` | Pipeline, after every update, with *Record Inputs* on | What the game gave the pipeline for that update, only what changed: `u`, `time`, `events`, `values`, `contexts`, `objective`, `actions`, `answers`, `before`, `during`, `rejected`. Replayed by `-run=AdaptiveReplay` ([REPLAY.md](REPLAY.md#recording)) |
 | `session_end` | Logger, last record | `duration` (s), `records` (including this one) |
 | `signal` | Telemetry stage, for every reported event and every changed value | `name`, `kind` (`event` / `value`), `value` |
 | `feature` | Feature stage, when a feature's value rounded to 0.01 changed | `name`, `value`, `raw` (before normalization, `null` without data) |

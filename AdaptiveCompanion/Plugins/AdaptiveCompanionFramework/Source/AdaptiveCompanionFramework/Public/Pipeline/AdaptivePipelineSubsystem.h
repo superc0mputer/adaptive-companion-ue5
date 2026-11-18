@@ -4,6 +4,7 @@
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Containers/Ticker.h"
 #include "Pipeline/AdaptivePipelineFrame.h"
+#include "Replay/AdaptiveInputRecording.h"
 #include "AdaptivePipelineSubsystem.generated.h"
 
 class UAdaptiveBehaviorStage;
@@ -161,4 +162,11 @@ protected:
 	double StartSeconds = 0.0;
 
 	FTSTicker::FDelegateHandle TickerHandle;
+
+	/** Replay recording (#24): off if bRecordInputs is false or logging is disabled */
+	bool bRecording = false;
+	bool bUpdating = false;
+	FAdaptiveInputRecorder Recorder;
+	TArray<FAdaptiveRecordedPhase> PhasesBefore;
+	TArray<FAdaptiveRecordedPhase> PhasesDuring;
 };

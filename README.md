@@ -128,6 +128,12 @@ written to the session log. `Lvl_NavigationScenario` is a maze with four objecti
 the third one without a beacon in a part full of dead ends and look-alike junctions, where players
 can get lost. Details: [docs/SCENARIOS.md](docs/SCENARIOS.md).
 
+Every session log also records what the game gave the pipeline at each update, so a session can
+be replayed without the game: `-run=AdaptiveReplay -Log=<session>` runs the pipeline on it with the
+current config, checks that two replays agree and that the replay does what the live session did,
+and compares it with a labels file that says which needs should be raised when. `Recordings/` holds
+three labeled examples. Details: [docs/REPLAY.md](docs/REPLAY.md).
+
 `ac.Debug 1` in the console shows a debug overlay with the pipeline's live values;
 `ac.Debug.Demo` fills it with test values. Details: [docs/DEBUG_OVERLAY.md](docs/DEBUG_OVERLAY.md).
 
@@ -144,8 +150,9 @@ can get lost. Details: [docs/SCENARIOS.md](docs/SCENARIOS.md).
 | `AdaptiveCompanion/Source/AdaptiveCompanion/Telemetry/` | Reports telemetry that doesn't belong to a single actor (enemies near the player, movement toward the objective, camera and input) |
 | `AdaptiveCompanion/Content/Companion/` | Our own assets (`BP_Companion`, `ST_Companion`, `DA_PipelineConfig`), stored via Git LFS |
 | `AdaptiveCompanion/Content/Scenarios/` | Our own test levels (`Lvl_CombatScenario`, `Lvl_NavigationScenario`), stored via Git LFS |
+| `Recordings/` | Labeled example recordings (session logs) for replays |
 | `Scripts/` | Setup scripts, `rebuild_editor.sh` (quit the editor, build, reopen it) |
-| `docs/` | Architecture, pipeline, scenarios, assets, logging and debug overlay documentation |
+| `docs/` | Architecture, pipeline, scenarios, assets, logging, replay and debug overlay documentation |
 
 The framework lives in its own runtime plugin so it can be reused in other UE5 projects; the
 game module depends on it, never the other way round. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

@@ -1346,6 +1346,9 @@ registered companion action with its availability.
 `ac.Debug 1` then shows the values in the overlay; the session log has the matching `signal`
 records.
 
+Recorded sessions can be run through the pipeline again without the game, e.g. after changing a
+rule: [REPLAY.md](REPLAY.md).
+
 The Combat need can be raised without fighting: `ac.Pipeline.Context Context.Combat 1`,
 `ac.Pipeline.Value Player.Health 0.4`, then `ac.Pipeline.Event Combat.DamageTaken 1` three times
 within 5 s (raw score 0.72). An intervention is only selected if an action is available for it,

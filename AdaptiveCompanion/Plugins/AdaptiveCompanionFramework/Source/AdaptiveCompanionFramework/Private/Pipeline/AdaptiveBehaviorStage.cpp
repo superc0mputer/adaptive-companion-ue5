@@ -65,6 +65,7 @@ double UAdaptiveBehaviorStage::GetNow() const
 void UAdaptiveBehaviorStage::Update(FAdaptivePipelineFrame& Frame)
 {
 	LastUpdateTime = Frame.Time;
+	bLastDispatchRejected = false;
 	Outcomes.AfterWindow = OutcomeWindow;
 
 	// before the new intervention starts, so a selection in this update cuts the previous window short
@@ -99,6 +100,7 @@ void UAdaptiveBehaviorStage::Update(FAdaptivePipelineFrame& Frame)
 		&& IAdaptiveCompanionActionHandler::Execute_PerformAction(Handler, Action->Action);
 	if (!bAccepted)
 	{
+		bLastDispatchRejected = true;
 		ReportPhase(Frame.Intervention, AdaptiveInterventionPhase::Rejected, Handler ? TEXT("the handler refused") : TEXT("no handler"));
 	}
 
