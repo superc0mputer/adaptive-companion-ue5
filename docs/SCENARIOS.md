@@ -58,7 +58,7 @@ Every phase change is a `scenario` record:
 |---|---|
 | `scenario` | `Combat` |
 | `phase` | `Start`, `WarmUp`, `BuildUp`, `Pressure`, `End` |
-| `event` | `started`, `enemy_killed`, `cleared`, `failed` (player died), `restarted` |
+| `event` | `started`, `enemy_killed`, `cleared`, `failed` (player died), `restarted`, `extra_enemies` ([below](#extra-enemies)) |
 | `wave` | Wave index; −1 during `Start`, the number of waves at `End` |
 | `enemies_left` | Living enemies of the wave after the event |
 
@@ -99,6 +99,16 @@ four enemies kill it, then clears the restarted wave after 3–6 s. Times in s s
 
 To start at a later wave while testing, set *First Wave* on the `CombatScenario` actor (Testing
 category), e.g. 2 for `Pressure`. Waves before it are skipped and not logged.
+
+### Extra enemies
+
+`Scenario.ExtraEnemies <N>` spawns N more enemies at random reachable points within 12 m of the
+arena's center, on top of the waves, as heavy load for the measurements (#25,
+[MEASUREMENTS.md](MEASUREMENTS.md#heavy-load)); `Scenario.ExtraEnemies 0` removes them. They don't
+count for clearing a wave. Like a wave's enemies they are removed when the player dies (on the
+next tick, since the player usually dies inside an enemy's attack trace, and the enemies' AI needs
+a player pawn) and spawn again when the wave restarts. Logged as a `scenario` record with event
+`extra_enemies` and the field `extra_enemies` (how many spawned).
 
 ## Navigation scenario
 

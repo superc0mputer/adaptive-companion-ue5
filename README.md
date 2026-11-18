@@ -134,6 +134,15 @@ current config, checks that two replays agree and that the replay does what the 
 and compares it with a labels file that says which needs should be raised when. `Recordings/` holds
 three labeled examples. Details: [docs/REPLAY.md](docs/REPLAY.md).
 
+Every session also measures how fast the companion reacts and what the framework costs: for each
+intervention the time of every step from the need's threshold to the first frame on screen, and
+every update's cost per stage. `-run=AdaptiveMeasurements` exports them as tables, and
+`-run=AdaptiveBenchmark` measures the cost with up to 50 times this game's features and needs. In
+scripted runs the help reached the screen 53–171 ms after it was selected (mostly rendering), and
+the pipeline took about 1 % of the game thread, almost all of it for the session log and the
+game's action checks. Details:
+[docs/MEASUREMENTS.md](docs/MEASUREMENTS.md).
+
 `ac.Debug 1` in the console shows a debug overlay with the pipeline's live values;
 `ac.Debug.Demo` fills it with test values. Details: [docs/DEBUG_OVERLAY.md](docs/DEBUG_OVERLAY.md).
 
@@ -152,7 +161,7 @@ three labeled examples. Details: [docs/REPLAY.md](docs/REPLAY.md).
 | `AdaptiveCompanion/Content/Scenarios/` | Our own test levels (`Lvl_CombatScenario`, `Lvl_NavigationScenario`), stored via Git LFS |
 | `Recordings/` | Labeled example recordings (session logs) for replays |
 | `Scripts/` | Setup scripts, `rebuild_editor.sh` (quit the editor, build, reopen it) |
-| `docs/` | Architecture, pipeline, scenarios, assets, logging, replay and debug overlay documentation |
+| `docs/` | Architecture, pipeline, scenarios, assets, logging, replay, measurements and debug overlay documentation |
 
 The framework lives in its own runtime plugin so it can be reused in other UE5 projects; the
 game module depends on it, never the other way round. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

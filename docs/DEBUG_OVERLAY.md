@@ -17,13 +17,13 @@ watching them. It is part of the framework plugin
 | `ac.Debug.Sections [Sections]` | Shows only these sections, by name or number, e.g. `ac.Debug.Sections 3 5 6`; empty shows all again. Useful when the overlay is taller than the screen |
 
 `Section` is a section name (`Telemetry`, `Features`, `Need`, `Context`, `Selection`, `Behavior`,
-case-insensitive) or its number 1–6, e.g. `ac.Debug.Set Need Need.Combat 0.7`.
+case-insensitive) or its number 1–7, e.g. `ac.Debug.Set Need Need.Combat 0.7`.
 
 From Blueprint: *Set Overlay Visible*, *Is Overlay Visible*.
 
 ## Sections
 
-One section per pipeline stage, in pipeline order. A section without values shows *no data*.
+One section per pipeline stage, in pipeline order, and one for the measurements. A section without values shows *no data*.
 
 | Section | Filled by |
 |---|---|
@@ -33,6 +33,7 @@ One section per pipeline stage, in pipeline order. A section without values show
 | 4 Context | Every context the game reported, `active` or `inactive` and since when, e.g. `Context.Combat  active since 10.9 s`; the current objective; the test scenario's phase; every companion action with its availability, e.g. `Action.ThreatCallout  unavailable: no enemy out of view` (#17) |
 | 5 Intervention Selection | The decision and its reason, every action's utility and terms or why it is no candidate (e.g. `cooldown, 14 s left`), the last selected action and when (#18) |
 | 6 Behavior | Latest phase of each intervention and when; final phases with the time since dispatch, failures with their reason (#19); the last outcome and those still being measured (#23) |
+| 7 Measurements | `Latency`: the last intervention's selection → screen, level change → screen and threshold → screen; `Cost`: the last 5 s window's update mean, p95 and max, the pipeline's time per frame and share of the game thread, and the frame time (#25, [MEASUREMENTS.md](MEASUREMENTS.md)) |
 
 ## Writing values
 
