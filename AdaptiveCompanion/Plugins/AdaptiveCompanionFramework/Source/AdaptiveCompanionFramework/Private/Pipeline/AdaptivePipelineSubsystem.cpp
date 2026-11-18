@@ -16,8 +16,40 @@
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformTime.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
+#include "DynamicRHI.h"
+#include "RenderTimer.h"
 
 DECLARE_CYCLE_STAT(TEXT("Pipeline Update"), STAT_AdaptivePipelineUpdate, STATGROUP_AdaptiveCompanion);
+
+namespace
+{
+	/** "AdaptiveFeatureStage" → "Feature", for the perf records */
+	FString PartName(const UObject& Stage)
+	{
+		FString Name = Stage.GetClass()->GetName();
+		Name.RemoveFromStart(TEXT("Adaptive"));
+		Name.RemoveFromEnd(TEXT("Stage"));
+		return Name;
+	}
+}
+
+UAdaptivePipelineSubsystem::FApiTimer::FApiTimer(UAdaptivePipelineSubsystem& InPipeline)
+{
+	// calls made while an update runs (e.g. "started" from PerformAction) are already in the update's time
+	if (InPipeline.bMeasuring && !InPipeline.bUpdating)
+	{
+		Pipeline = &InPipeline;
+		StartCycles = FPlatformTime::Cycles64();
+	}
+}
+
+UAdaptivePipelineSubsystem::FApiTimer::~FApiTimer()
+{
+	if (Pipeline)
+	{
+		Pipeline->Perf.AddApi(FPlatformTime::ToSeconds64(FPlatformTime::Cycles64() - StartCycles));
+	}
+}
 
 UAdaptivePipelineSubsystem* UAdaptivePipelineSubsystem::Get(const UObject* WorldContextObject)
 {
@@ -85,6 +117,25 @@ void UAdaptivePipelineSubsystem::Initialize(FSubsystemCollectionBase& Collection
 		Stage->Initialize(*this);
 	}
 
+	const UAdaptivePipelineSettings* Settings = GetDefault<UAdaptivePipelineSettings>();
+	bMeasuring = Settings->bMeasurePerformance;
+	if (bMeasuring)
+	{
+		TArray<FString> PartNames;
+		for (const UAdaptivePipelineStage* Stage : Stages)
+		{
+			PartNames.Add(PartName(*Stage));
+		}
+		PartNames.Add(TEXT("Recording"));
+		Perf.Reset(PartNames);
+		PerfPartNames = PartNames;
+		PerfStart = PerfWindowStart = GetTime();
+	}
+	if (Log)
+	{
+		Log->OnSessionEnding.AddUObject(this, &UAdaptivePipelineSubsystem::OnSessionEnding);
+	}
+
 	UE_LOG(LogAdaptiveCompanionFramework, Display, TEXT("Pipeline running at %g Hz (config: %s)."), GetUpdateRate(), *GetNameSafe(Config));
 }
 
@@ -118,6 +169,7 @@ TStage* UAdaptivePipelineSubsystem::CreateStage(TStage* Template)
 
 void UAdaptivePipelineSubsystem::ReportEvent(FName Name, double Value)
 {
+	FApiTimer Timer(*this);
 	if (Telemetry)
 	{
 		Telemetry->ReportEvent(Name, Value);
@@ -126,6 +178,7 @@ void UAdaptivePipelineSubsystem::ReportEvent(FName Name, double Value)
 
 void UAdaptivePipelineSubsystem::ReportValue(FName Name, double Value)
 {
+	FApiTimer Timer(*this);
 	if (Telemetry)
 	{
 		Telemetry->ReportValue(Name, Value);
@@ -134,6 +187,7 @@ void UAdaptivePipelineSubsystem::ReportValue(FName Name, double Value)
 
 void UAdaptivePipelineSubsystem::SetContext(FName Name, bool bActive)
 {
+	FApiTimer Timer(*this);
 	if (Context)
 	{
 		Context->SetContext(Name, bActive);
@@ -147,6 +201,7 @@ bool UAdaptivePipelineSubsystem::IsContextActive(FName Name) const
 
 void UAdaptivePipelineSubsystem::RegisterActions(UObject* Handler, const TArray<UAdaptiveCompanionAction*>& Actions)
 {
+	FApiTimer Timer(*this);
 	if (Context)
 	{
 		Context->RegisterActions(Handler, Actions);
@@ -163,6 +218,7 @@ void UAdaptivePipelineSubsystem::UnregisterActions(UObject* Handler)
 
 void UAdaptivePipelineSubsystem::SetObjective(FName Name, FVector Location)
 {
+	FApiTimer Timer(*this);
 	if (Context)
 	{
 		Context->SetObjective(Name, Location);
@@ -171,6 +227,7 @@ void UAdaptivePipelineSubsystem::SetObjective(FName Name, FVector Location)
 
 void UAdaptivePipelineSubsystem::ClearObjective()
 {
+	FApiTimer Timer(*this);
 	if (Context)
 	{
 		Context->ClearObjective();
@@ -186,6 +243,7 @@ bool UAdaptivePipelineSubsystem::GetCurrentObjective(FName& Name, FVector& Locat
 
 void UAdaptivePipelineSubsystem::ReportInterventionPhase(FName Intervention, FName Phase, const FString& Detail)
 {
+	FApiTimer Timer(*this);
 	if (bRecording)
 	{
 		// phases reported while an update runs (e.g. "started" from PerformAction) are replayed after it, the others before the next one
@@ -203,7 +261,11 @@ void UAdaptivePipelineSubsystem::Update()
 	SCOPE_CYCLE_COUNTER(STAT_AdaptivePipelineUpdate);
 	TRACE_CPUPROFILER_EVENT_SCOPE(UAdaptivePipelineSubsystem::Update);
 
+	const uint64 UpdateStart = FPlatformTime::Cycles64();
 	const double Now = GetTime();
+
+	FAdaptiveUpdateCost Cost;
+	Cost.Parts.Reserve(Stages.Num() + 1);
 
 	Frame = FAdaptivePipelineFrame();
 	Frame.UpdateIndex = UpdateCount;
@@ -215,10 +277,13 @@ void UAdaptivePipelineSubsystem::Update()
 	for (UAdaptivePipelineStage* Stage : Stages)
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE_TEXT(*Stage->GetClass()->GetName());
+		const uint64 StageStart = FPlatformTime::Cycles64();
 		Stage->Update(Frame);
+		Cost.Parts.Add(FPlatformTime::ToSeconds64(FPlatformTime::Cycles64() - StageStart));
 	}
 	bUpdating = false;
 
+	const uint64 RecordingStart = FPlatformTime::Cycles64();
 	if (bRecording && Log)
 	{
 		const FAdaptiveRecordedUpdate Recorded = Recorder.Record(Frame, MoveTemp(PhasesBefore), MoveTemp(PhasesDuring), Behavior && Behavior->WasLastDispatchRejected());
@@ -229,6 +294,59 @@ void UAdaptivePipelineSubsystem::Update()
 
 	++UpdateCount;
 	LastUpdateTime = Now;
+
+	if (bMeasuring)
+	{
+		const uint64 End = FPlatformTime::Cycles64();
+		Cost.Parts.Add(FPlatformTime::ToSeconds64(End - RecordingStart));
+		Cost.Total = FPlatformTime::ToSeconds64(End - UpdateStart);
+		for (const FAdaptiveTelemetryEvent& Event : Frame.Events)
+		{
+			Cost.InputWait = FMath::Max(Cost.InputWait, Now - Event.Time);
+		}
+		Cost.Events = Frame.Events.Num();
+		Cost.Values = Frame.Values.Num();
+		Cost.Features = Frame.Features.Num();
+		Cost.Needs = Frame.Needs.Num();
+		Cost.Actions = Frame.Actions.Num();
+		Perf.AddUpdate(Cost);
+
+		if (Log && Cost.Total * 1000.0 > GetDefault<UAdaptivePipelineSettings>()->SpikeThreshold)
+		{
+			TSharedRef<FJsonObject> Spike = MakeShared<FJsonObject>();
+			Spike->SetNumberField(TEXT("u"), double(Frame.UpdateIndex));
+			Spike->SetNumberField(TEXT("total_us"), FMath::RoundToDouble(Cost.Total * 1e7) / 10.0);
+			TSharedRef<FJsonObject> Parts = MakeShared<FJsonObject>();
+			for (int32 Index = 0; Index < PerfPartNames.Num() && Index < Cost.Parts.Num(); ++Index)
+			{
+				Parts->SetNumberField(PerfPartNames[Index], FMath::RoundToDouble(Cost.Parts[Index] * 1e7) / 10.0);
+			}
+			Spike->SetObjectField(TEXT("parts_us"), Parts);
+			Log->LogRecord(AdaptiveLogRecordType::PerfSpike, Spike);
+		}
+	}
+}
+
+void UAdaptivePipelineSubsystem::LogPerfWindow(double Now)
+{
+	const TSharedRef<FJsonObject> Window = Perf.TakeWindow(Now - PerfWindowStart);
+	PerfWindowStart = Now;
+	if (Log)
+	{
+		Log->LogRecord(AdaptiveLogRecordType::Perf, Window);
+	}
+	if (Debug)
+	{
+		Debug->SetText(EAdaptiveDebugSection::Measurements, TEXT("Cost"), Perf.GetOverlayText());
+	}
+}
+
+void UAdaptivePipelineSubsystem::OnSessionEnding()
+{
+	if (bMeasuring && Log)
+	{
+		Log->LogRecord(AdaptiveLogRecordType::PerfSummary, Perf.GetSummary(GetTime() - PerfStart));
+	}
 }
 
 double UAdaptivePipelineSubsystem::GetTime() const
@@ -253,6 +371,19 @@ bool UAdaptivePipelineSubsystem::Tick(float DeltaTime)
 	if (Rate.Step(GetTime()))
 	{
 		Update();
+	}
+
+	if (bMeasuring)
+	{
+		// the engine's times are those of the latest finished frame
+		Perf.EndFrame(DeltaTime, FPlatformTime::ToSeconds64(GGameThreadTime), FPlatformTime::ToSeconds64(GRenderThreadTime),
+			GDynamicRHI ? FPlatformTime::ToSeconds64(RHIGetGPUFrameCycles()) : 0.0);
+
+		const double Now = GetTime();
+		if (Now - PerfWindowStart >= GetDefault<UAdaptivePipelineSettings>()->PerformanceWindow)
+		{
+			LogPerfWindow(Now);
+		}
 	}
 	return true;
 }

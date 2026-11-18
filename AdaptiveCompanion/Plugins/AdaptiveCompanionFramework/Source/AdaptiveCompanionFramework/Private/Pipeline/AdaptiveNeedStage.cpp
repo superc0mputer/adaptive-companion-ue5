@@ -99,6 +99,36 @@ void UAdaptiveNeedStage::Update(FAdaptivePipelineFrame& Frame)
 		State.Score = DimensionState.Smoothed;
 		State.Level = State.bActive ? AdaptiveNeedMath::NextLevel(DimensionState.Level, State.Score, Settings) : EAdaptiveNeedLevel::Normal;
 		State.bChanged = State.Level != DimensionState.Level;
+
+		// when the raw score crossed the threshold and when the level followed, for the latency (#25)
+		const bool bRawAbove = State.bActive && State.RawScore >= Settings.ElevatedEnter;
+		if (bRawAbove && !DimensionState.RawRunStart.IsSet())
+		{
+			DimensionState.RawRunStart = Frame.Time;
+		}
+		else if (!bRawAbove && DimensionState.RawRunStart.IsSet())
+		{
+			DimensionState.PreviousRawRunStart = *DimensionState.RawRunStart;
+			DimensionState.RawRunStart.Reset();
+		}
+		if (State.Level == EAdaptiveNeedLevel::Normal)
+		{
+			DimensionState.ElevatedSince = -1.0;
+			DimensionState.ThresholdTime = -1.0;
+		}
+		else if (DimensionState.Level == EAdaptiveNeedLevel::Normal)
+		{
+			// the raw score may already have dropped again in this update; then the run that just ended led here
+			DimensionState.ElevatedSince = Frame.Time;
+			DimensionState.ThresholdTime = DimensionState.RawRunStart.Get(DimensionState.PreviousRawRunStart);
+			if (DimensionState.ThresholdTime < 0.0)
+			{
+				DimensionState.ThresholdTime = Frame.Time;
+			}
+		}
+		State.ElevatedSince = DimensionState.ElevatedSince;
+		State.ThresholdTime = DimensionState.ThresholdTime;
+
 		Frame.Needs.Add(Estimate.Dimension, State);
 
 		const TCHAR* LevelName = AdaptiveNeedMath::LevelName(State.Level);

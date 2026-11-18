@@ -25,4 +25,7 @@ public:
 	UAdaptiveReplayCommandlet();
 
 	virtual int32 Main(const FString& Params) override;
+
+	/** Full path of a session log given as a path (absolute, or relative to the project or the repository), a file name or session id in the log folder; empty if none exists */
+	static FString ResolveLog(const FString& Name);
 };

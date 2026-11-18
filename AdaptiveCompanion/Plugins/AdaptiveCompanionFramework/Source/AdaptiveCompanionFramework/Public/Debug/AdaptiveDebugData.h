@@ -13,6 +13,7 @@ enum class EAdaptiveDebugSection : uint8
 	Context		UMETA(DisplayName = "4 Context"),
 	Selection	UMETA(DisplayName = "5 Intervention Selection"),
 	Behavior	UMETA(DisplayName = "6 Behavior"),
+	Measurements	UMETA(DisplayName = "7 Measurements"),
 
 	Count		UMETA(Hidden)
 };

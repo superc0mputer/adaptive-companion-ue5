@@ -7,6 +7,9 @@
 #include "Logging/AdaptiveLogSubsystem.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "CoreGlobals.h"
+#include "Engine/GameInstance.h"
+#include "HAL/PlatformTime.h"
 
 namespace
 {
@@ -18,6 +21,20 @@ namespace
 	FString FormatValue(const TOptional<double>& Value)
 	{
 		return Value.IsSet() ? FString::Printf(TEXT("%.2f"), *Value) : FString(TEXT("–"));
+	}
+
+	/** Session time with 0.1 ms precision, null if missing */
+	TSharedRef<FJsonValue> TimeValue(double Seconds)
+	{
+		return Seconds >= 0.0 ? StaticCastSharedRef<FJsonValue>(MakeShared<FJsonValueNumber>(FMath::RoundToDouble(Seconds * 10000.0) / 10000.0))
+			: StaticCastSharedRef<FJsonValue>(MakeShared<FJsonValueNull>());
+	}
+
+	/** A span in ms with 0.01 ms precision, null if missing */
+	TSharedRef<FJsonValue> MsValue(double Seconds)
+	{
+		return Seconds >= 0.0 ? StaticCastSharedRef<FJsonValue>(MakeShared<FJsonValueNumber>(FMath::RoundToDouble(Seconds * 100000.0) / 100.0))
+			: StaticCastSharedRef<FJsonValue>(MakeShared<FJsonValueNull>());
 	}
 }
 
@@ -37,13 +54,20 @@ void UAdaptiveBehaviorStage::Initialize(UAdaptivePipelineSubsystem& InPipeline)
 	if (UAdaptiveDebugSubsystem* Debug = GetDebug())
 	{
 		Debug->SetText(EAdaptiveDebugSection::Behavior, TEXT("Outcome"), TEXT("none yet"));
+		Debug->SetText(EAdaptiveDebugSection::Measurements, TEXT("Latency"), TEXT("none yet"));
 	}
+	PresentProbe = FAdaptivePresentProbe::Create(InPipeline.GetGameInstance());
 }
 
 void UAdaptiveBehaviorStage::Deinitialize()
 {
 	// normally done already, when the log announced the session's end
 	FlushOutcomes();
+	if (PresentProbe)
+	{
+		PresentProbe->Shutdown();
+		PresentProbe.Reset();
+	}
 	Super::Deinitialize();
 }
 
@@ -53,6 +77,24 @@ void UAdaptiveBehaviorStage::FlushOutcomes()
 	for (const FAdaptiveOutcome& Outcome : Outcomes.Flush(TEXT("session ended")))
 	{
 		LogOutcome(Outcome);
+	}
+	PollPresents();
+	LogLatencies(Latencies.Flush(TEXT("session ended")));
+}
+
+void UAdaptiveBehaviorStage::PollPresents()
+{
+	if (!PresentProbe)
+	{
+		return;
+	}
+
+	// the probe's times are FPlatformTime::Seconds(); the session clock is the same clock with another origin
+	const double Offset = GetNow() - FPlatformTime::Seconds();
+	FAdaptivePresentProbe::FPresent Present;
+	while (PresentProbe->Poll(Present))
+	{
+		Latencies.OnPresented(Present.Id, Present.Seconds + Offset, Present.Frame);
 	}
 }
 
@@ -67,6 +109,10 @@ void UAdaptiveBehaviorStage::Update(FAdaptivePipelineFrame& Frame)
 	LastUpdateTime = Frame.Time;
 	bLastDispatchRejected = false;
 	Outcomes.AfterWindow = OutcomeWindow;
+
+	PollPresents();
+	Latencies.Update(GetNow());
+	LogLatencies(Latencies.TakeFinished());
 
 	// before the new intervention starts, so a selection in this update cuts the previous window short
 	for (const FAdaptiveOutcome& Outcome : Outcomes.Update(Frame))
@@ -96,6 +142,23 @@ void UAdaptiveBehaviorStage::Update(FAdaptivePipelineFrame& Frame)
 	// logged before the handler is called, so a phase it reports synchronously comes after it
 	LogPhase(Frame.Intervention, AdaptiveInterventionPhase::Dispatched);
 
+	FAdaptiveLatency Latency;
+	Latency.Id = Frame.InterventionId;
+	Latency.Action = Frame.Intervention;
+	Latency.Need = Evaluation ? Evaluation->Need : NAME_None;
+	if (const FAdaptiveNeedState* NeedState = Frame.Needs.Find(Latency.Need))
+	{
+		Latency.Threshold = NeedState->ThresholdTime;
+		Latency.LevelChange = NeedState->ElevatedSince;
+		const double* Episode = LatencyEpisodes.Find(Latency.Need);
+		Latency.bRepeat = Episode && NeedState->ElevatedSince >= 0.0 && *Episode == NeedState->ElevatedSince;
+		LatencyEpisodes.Add(Latency.Need, NeedState->ElevatedSince);
+	}
+	Latency.Selected = Frame.Time;
+	Latency.SelectedFrame = GFrameCounter;
+	Latency.Dispatched = GetNow();
+	Latencies.Start(Latency);
+
 	const bool bAccepted = Handler && IsValid(Handler) && Handler->GetClass()->ImplementsInterface(UAdaptiveCompanionActionHandler::StaticClass())
 		&& IAdaptiveCompanionActionHandler::Execute_PerformAction(Handler, Action->Action);
 	if (!bAccepted)
@@ -117,14 +180,27 @@ void UAdaptiveBehaviorStage::ReportPhase(FName Intervention, FName Phase, const 
 {
 	LogPhase(Intervention, Phase, Detail);
 
+	if (Phase == AdaptiveInterventionPhase::Started)
+	{
+		const int32 Waiting = Latencies.OnStarted(Intervention, GetNow(), GFrameCounter, PresentProbe.IsValid());
+		if (Waiting != 0)
+		{
+			PresentProbe->Request(Waiting);
+		}
+	}
+
 	if (AdaptiveInterventionPhase::IsFinal(Phase))
 	{
+		Latencies.OnEnded(Intervention, Phase);
 		Outcomes.End(Intervention, Phase, Detail, GetNow());
 		if (Intervention == Running)
 		{
 			Running = NAME_None;
 		}
 	}
+
+	// finished by this phase (never started, or nothing renders): logged now rather than at the next update
+	LogLatencies(Latencies.TakeFinished());
 }
 
 FName UAdaptiveBehaviorStage::UpdateRunning(double Now)
@@ -260,6 +336,90 @@ void UAdaptiveBehaviorStage::LogOutcome(const FAdaptiveOutcome& Outcome) const
 	if (OnOutcome)
 	{
 		OnOutcome(Outcome);
+	}
+}
+
+void UAdaptiveBehaviorStage::LogLatencies(TArray<FAdaptiveLatency> Finished) const
+{
+	UAdaptiveLogSubsystem* Log = GetLog();
+	UAdaptiveDebugSubsystem* Debug = GetDebug();
+
+	for (const FAdaptiveLatency& Latency : Finished)
+	{
+		if (Log)
+		{
+			TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
+			Payload->SetNumberField(TEXT("id"), Latency.Id);
+			Payload->SetStringField(TEXT("name"), Latency.Action.ToString());
+			Payload->SetStringField(TEXT("need"), Latency.Need.ToString());
+			Payload->SetBoolField(TEXT("repeat"), Latency.bRepeat);
+
+			TSharedRef<FJsonObject> Times = MakeShared<FJsonObject>();
+			Times->SetField(TEXT("threshold"), TimeValue(Latency.Threshold));
+			Times->SetField(TEXT("level_change"), TimeValue(Latency.LevelChange));
+			Times->SetField(TEXT("selected"), TimeValue(Latency.Selected));
+			Times->SetField(TEXT("dispatched"), TimeValue(Latency.Dispatched));
+			Times->SetField(TEXT("started"), TimeValue(Latency.Started));
+			Times->SetField(TEXT("presented"), TimeValue(Latency.Presented));
+			Payload->SetObjectField(TEXT("times"), Times);
+
+			TSharedRef<FJsonObject> Ms = MakeShared<FJsonObject>();
+			Ms->SetField(TEXT("smoothing"), MsValue(Latency.GetSmoothing()));
+			Ms->SetField(TEXT("selection_wait"), MsValue(Latency.GetSelectionWait()));
+			Ms->SetField(TEXT("pipeline"), MsValue(Latency.GetPipeline()));
+			Ms->SetField(TEXT("handoff"), MsValue(Latency.GetHandoff()));
+			Ms->SetField(TEXT("render"), MsValue(Latency.GetRender()));
+			Ms->SetField(TEXT("reaction"), MsValue(Latency.GetReaction()));
+			Ms->SetField(TEXT("response"), MsValue(Latency.GetResponse()));
+			Ms->SetField(TEXT("total"), MsValue(Latency.GetTotal()));
+			Payload->SetObjectField(TEXT("ms"), Ms);
+
+			TSharedRef<FJsonObject> Frames = MakeShared<FJsonObject>();
+			if (Latency.StartedFrame > 0)
+			{
+				Frames->SetNumberField(TEXT("handoff"), double(Latency.StartedFrame - Latency.SelectedFrame));
+			}
+			if (Latency.PresentedFrame > 0 && Latency.PresentedFrame >= Latency.StartedFrame)
+			{
+				Frames->SetNumberField(TEXT("render"), double(Latency.PresentedFrame - Latency.StartedFrame));
+			}
+			Payload->SetObjectField(TEXT("frames"), Frames);
+
+			if (!Latency.Incomplete.IsEmpty())
+			{
+				Payload->SetStringField(TEXT("incomplete"), Latency.Incomplete);
+			}
+			Log->LogRecord(AdaptiveLogRecordType::Latency, Payload);
+		}
+
+		if (Debug)
+		{
+			// "#3 Action.ThreatCallout: selection → screen 38.1 ms, level change → screen 38.1 ms, threshold → screen 612 ms"
+			FString Text = FString::Printf(TEXT("#%d %s: "), Latency.Id, *Latency.Action.ToString());
+			if (Latency.Presented >= 0.0 && Latency.bRepeat)
+			{
+				Text += FString::Printf(TEXT("selection → screen %.1f ms (repeat in the same episode)"), Latency.GetReaction() * 1000.0);
+			}
+			else if (Latency.Presented >= 0.0)
+			{
+				Text += FString::Printf(TEXT("selection → screen %.1f ms, level change → screen %.0f ms, threshold → screen %.0f ms"),
+					Latency.GetReaction() * 1000.0, Latency.GetResponse() * 1000.0, Latency.GetTotal() * 1000.0);
+			}
+			else if (Latency.Started >= 0.0)
+			{
+				Text += FString::Printf(TEXT("selection → started %.1f ms, %s"), Latency.GetPipeline() * 1000.0 + Latency.GetHandoff() * 1000.0, *Latency.Incomplete);
+			}
+			else
+			{
+				Text += FString::Printf(TEXT("never started (%s)"), *Latency.Incomplete);
+			}
+			Debug->SetText(EAdaptiveDebugSection::Measurements, TEXT("Latency"), Text);
+		}
+
+		if (OnLatency)
+		{
+			OnLatency(Latency);
+		}
 	}
 }
 

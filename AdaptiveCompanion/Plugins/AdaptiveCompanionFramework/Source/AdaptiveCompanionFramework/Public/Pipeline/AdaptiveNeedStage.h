@@ -54,6 +54,12 @@ protected:
 	{
 		double Smoothed = 0.0;
 		EAdaptiveNeedLevel Level = EAdaptiveNeedLevel::Normal;
+
+		/** Start of the current run with the raw score at or above ElevatedEnter, and of the previous one (#25) */
+		TOptional<double> RawRunStart;
+		double PreviousRawRunStart = -1.0;
+		double ElevatedSince = -1.0;
+		double ThresholdTime = -1.0;
 		TOptional<double> LoggedScore;
 		TOptional<double> LoggedRaw;
 		FString LoggedReason;

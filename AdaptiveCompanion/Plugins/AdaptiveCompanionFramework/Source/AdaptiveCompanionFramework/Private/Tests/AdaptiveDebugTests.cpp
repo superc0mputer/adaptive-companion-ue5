@@ -67,7 +67,8 @@ bool FAdaptiveDebugParseSectionTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Name ignores case"), UAdaptiveDebugSubsystem::ParseSection(TEXT("need"), Section) && Section == EAdaptiveDebugSection::Need);
 	TestTrue(TEXT("Number"), UAdaptiveDebugSubsystem::ParseSection(TEXT("6"), Section) && Section == EAdaptiveDebugSection::Behavior);
 	TestFalse(TEXT("Number 0"), UAdaptiveDebugSubsystem::ParseSection(TEXT("0"), Section));
-	TestFalse(TEXT("Number 7"), UAdaptiveDebugSubsystem::ParseSection(TEXT("7"), Section));
+	TestTrue(TEXT("Number 7"), UAdaptiveDebugSubsystem::ParseSection(TEXT("7"), Section) && Section == EAdaptiveDebugSection::Measurements);
+	TestFalse(TEXT("Number 8"), UAdaptiveDebugSubsystem::ParseSection(TEXT("8"), Section));
 	TestFalse(TEXT("Count is not a section"), UAdaptiveDebugSubsystem::ParseSection(TEXT("Count"), Section));
 	TestFalse(TEXT("Unknown"), UAdaptiveDebugSubsystem::ParseSection(TEXT("Foo"), Section));
 

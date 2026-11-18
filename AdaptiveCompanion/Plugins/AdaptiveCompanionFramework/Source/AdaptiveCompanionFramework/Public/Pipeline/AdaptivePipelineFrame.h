@@ -33,6 +33,12 @@ struct FAdaptiveNeedState
 
 	/** What contributes most to the score, e.g. the strongest rule. Empty if nothing does */
 	FString Reason;
+
+	/** Session time (s) the level last rose from Normal: the state change an intervention answers (#25). -1 while Normal */
+	double ElevatedSince = -1.0;
+
+	/** Session time (s) the raw score reached the Elevated enter threshold, in the run that led to ElevatedSince. Before ElevatedSince by the smoothing's delay. -1 while Normal */
+	double ThresholdTime = -1.0;
 };
 
 class UAdaptiveCompanionAction;

@@ -58,6 +58,7 @@ namespace
 		TEXT("4 Context"),
 		TEXT("5 Intervention Selection"),
 		TEXT("6 Behavior"),
+		TEXT("7 Measurements"),
 	};
 	static_assert(UE_ARRAY_COUNT(SectionTitles) == static_cast<int32>(EAdaptiveDebugSection::Count), "One title per section");
 
