@@ -51,7 +51,7 @@ plugin. If it names a specific actor, level, asset or rule of this prototype, it
 | Plugin dependencies | StateTree, GameplayStateTree |
 | Log category | `LogAdaptiveCompanionFramework`, exported for use by games |
 | Content | Allowed (`CanContainContent`), for framework-owned Data Assets and debug widgets |
-| Stat group | `STATGROUP_AdaptiveCompanion` (`stat AdaptiveCompanion`) for per-frame costs |
+| Stat group | `STATGROUP_AdaptiveCompanion` (`stat AdaptiveCompanion`) for per-frame costs; the logged measurements are in [MEASUREMENTS.md](MEASUREMENTS.md) |
 
 Game-specific assets live in `Content/Companion/`, which is allow-listed in `.gitignore`.
 
@@ -83,6 +83,19 @@ Stages, telemetry API, update rate and config: [PIPELINE.md](PIPELINE.md).
 | `UAdaptiveReplayCommandlet` | `-run=AdaptiveReplay`: replays a session log twice, compares, writes the results |
 
 Recording, replay, labels and the example recordings: [REPLAY.md](REPLAY.md).
+
+### Measurements
+
+| Class | Role |
+|---|---|
+| `FAdaptiveLatency`, `FAdaptiveLatencyTracker` | The times of one intervention's steps from the need's threshold to the screen, and the spans between them; collects them as the Behavior stage sees them |
+| `FAdaptivePresentProbe` | Reports when the frame drawn after a request is ready to present (render thread, Slate's `OnBackBufferReadyToPresent`) |
+| `FAdaptivePerfMonitor`, `FAdaptiveStats` | Collects each update's cost per stage, the API time and the frame times; summaries per window and per session |
+| `FAdaptiveMeasurementTables`, `FAdaptiveTable` | Turns the measurement records of session logs into tables (CSV, Markdown) |
+| `UAdaptiveMeasurementsCommandlet` | `-run=AdaptiveMeasurements`: exports the tables of one or more session logs |
+| `UAdaptiveBenchmarkCommandlet` | `-run=AdaptiveBenchmark`: replays a recording with k copies of the features and needs and times every stage |
+
+Latency, cost, heavy load, the tables and the measured results: [MEASUREMENTS.md](MEASUREMENTS.md).
 
 ### Session logging
 
@@ -157,7 +170,7 @@ Repeatable situations for testing the framework ([SCENARIOS.md](SCENARIOS.md)). 
 
 | Class / asset | Role |
 |---|---|
-| `ACombatScenario` | Placed in a level. Runs its waves of enemies in order, restarts a wave when the player dies and writes every phase change to the session log as a `scenario` record. Phases are never reported to the pipeline |
+| `ACombatScenario` | Placed in a level. Runs its waves of enemies in order, restarts a wave when the player dies and writes every phase change to the session log as a `scenario` record. Phases are never reported to the pipeline. Spawns extra enemies as heavy load (`Scenario.ExtraEnemies`, #25) |
 | `ANavigationScenario` | Placed in a level with `ANavigationObjective`s. Logs `Start`, each objective's *Phase* (`started` when it becomes current, `reached`) and `End` |
 | `ScenarioLog` | Shared by both: writes the `scenario` record, the overlay line and the output log line |
 | `Lvl_CombatScenario` | Walled 30 × 30 m arena with one PlayerStart and an `ACombatScenario` in its center |

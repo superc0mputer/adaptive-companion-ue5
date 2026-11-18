@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
 #include "Pipeline/AdaptiveCompanionAction.h"
+#include "Pipeline/AdaptivePerfMonitor.h"
 #include "Replay/AdaptiveInputRecording.h"
 #include "AdaptiveReplayRunner.generated.h"
 
@@ -65,8 +66,25 @@ class ADAPTIVECOMPANIONFRAMEWORK_API UAdaptiveReplayRunner : public UObject
 
 public:
 
-	/** Creates fresh stages from the config's templates; nullptr uses the defaults */
-	void Setup(const UAdaptivePipelineConfig* Config);
+	/**
+	 *  Creates fresh stages from the config's templates; nullptr uses the defaults. With Copies > 1
+	 *  the features and need dimensions run that many times, each copy on its own renamed telemetry
+	 *  ("Combat.DamageTaken#2"), for the benchmark's heavy load (#25)
+	 */
+	void Setup(const UAdaptivePipelineConfig* Config, int32 Copies = 1);
+
+	/** Measure each update's cost per stage during Run (GetCosts) */
+	bool bMeasure = false;
+
+	/** One per update of the last Run, if bMeasure. Parts are the stages in update order */
+	const TArray<FAdaptiveUpdateCost>& GetCosts() const { return Costs; }
+
+	/** The stages' names in update order, e.g. "Feature" */
+	TArray<FString> GetStageNames() const;
+
+	/** Features and need dimensions the stages run with */
+	int32 GetFeatureCount() const;
+	int32 GetDimensionCount() const;
 
 	/** Runs every update and returns one step per update. Call Setup first; a second Run needs a new Setup */
 	TArray<FAdaptiveReplayStep> Run(const TArray<FAdaptiveRecordedUpdate>& Updates);
@@ -77,6 +95,13 @@ public:
 private:
 
 	void Apply(const FAdaptiveRecordedUpdate& Update);
+	void AddCopies(int32 Copies);
+
+	/** Copies > 1: the renamed names of a signal, one per extra copy */
+	const TArray<FName>& GetCopyNames(FName Name);
+	int32 Copies = 1;
+	TMap<FName, TArray<FName>> CopyNames;
+	TArray<FAdaptiveUpdateCost> Costs;
 
 	UPROPERTY()
 	TArray<TObjectPtr<UAdaptivePipelineStage>> Stages;

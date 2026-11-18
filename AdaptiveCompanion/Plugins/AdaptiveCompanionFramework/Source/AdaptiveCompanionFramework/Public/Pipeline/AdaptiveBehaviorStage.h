@@ -2,7 +2,9 @@
 
 #include "CoreMinimal.h"
 #include "Pipeline/AdaptivePipelineStage.h"
+#include "Pipeline/AdaptiveLatencyTracker.h"
 #include "Pipeline/AdaptiveOutcomeTracker.h"
+#include "Pipeline/AdaptivePresentProbe.h"
 #include "AdaptiveBehaviorStage.generated.h"
 
 /** The phases of an intervention. The game may report others; these are the ones the framework knows */
@@ -44,6 +46,10 @@ namespace AdaptiveInterventionPhase
  *  It also measures each intervention's outcome (#23, FAdaptiveOutcomeTracker): the need it was
  *  selected for and the action's outcome features at the selection, at the end and over
  *  OutcomeWindow after the end, logged as an "outcome" record with the intervention's id.
+ *
+ *  And how long each intervention took to reach the screen (#25, FAdaptiveLatencyTracker): from
+ *  the need's raw threshold and level change over selection, dispatch and the game's "started" to
+ *  the first frame presented after it (FAdaptivePresentProbe), logged as a "latency" record.
  */
 UCLASS(meta = (DisplayName = "Behavior Stage"))
 class ADAPTIVECOMPANIONFRAMEWORK_API UAdaptiveBehaviorStage : public UAdaptivePipelineStage
@@ -83,11 +89,19 @@ public:
 	/** Called for every finished outcome, after it is logged. For the tests and anyone analysing outcomes live */
 	TFunction<void(const FAdaptiveOutcome&)> OnOutcome;
 
+	/** Called for every finished latency, after it is logged */
+	TFunction<void(const FAdaptiveLatency&)> OnLatency;
+
+	/** Latencies still being measured */
+	const FAdaptiveLatencyTracker& GetLatencies() const { return Latencies; }
+
 protected:
 
 	void LogPhase(FName Intervention, FName Phase, const FString& Detail = FString(), int32 Receivers = INDEX_NONE) const;
 	void LogOutcome(const FAdaptiveOutcome& Outcome) const;
 	void FlushOutcomes();
+	void PollPresents();
+	void LogLatencies(TArray<FAdaptiveLatency> Finished) const;
 	void ShowOutcomes(double Now) const;
 
 	FName Running;
@@ -107,4 +121,12 @@ protected:
 	double GetNow() const;
 
 	FAdaptiveOutcomeTracker Outcomes;
+
+	FAdaptiveLatencyTracker Latencies;
+
+	/** Per need, the ElevatedSince of the last intervention selected for it, to tell repeats apart */
+	TMap<FName, double> LatencyEpisodes;
+
+	/** Null where nothing is rendered; the latencies then end at "started" */
+	TSharedPtr<FAdaptivePresentProbe, ESPMode::ThreadSafe> PresentProbe;
 };

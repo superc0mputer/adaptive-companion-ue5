@@ -31,6 +31,18 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Pipeline", meta = (EditCondition = "bEnabled"))
 	bool bRecordInputs = true;
 
+	/** Measures what the pipeline costs per update and per stage, and the frame times around it, and logs a summary every PerformanceWindow (perf records) and at the end (perf_summary, #25) */
+	UPROPERTY(Config, EditAnywhere, Category = "Measurements", meta = (EditCondition = "bEnabled"))
+	bool bMeasurePerformance = true;
+
+	/** Seconds per perf record */
+	UPROPERTY(Config, EditAnywhere, Category = "Measurements", meta = (EditCondition = "bEnabled && bMeasurePerformance", ClampMin = "1", Units = "s"))
+	float PerformanceWindow = 5.f;
+
+	/** An update that takes longer than this is logged on its own with its stages' times (perf_spike), so rare maxima can be explained */
+	UPROPERTY(Config, EditAnywhere, Category = "Measurements", meta = (EditCondition = "bEnabled && bMeasurePerformance", ClampMin = "0.1", Units = "ms"))
+	float SpikeThreshold = 5.f;
+
 	/** Loads the selected config asset, or returns the defaults if none is selected or it can't be loaded */
 	const UAdaptivePipelineConfig* LoadConfig() const;
 };

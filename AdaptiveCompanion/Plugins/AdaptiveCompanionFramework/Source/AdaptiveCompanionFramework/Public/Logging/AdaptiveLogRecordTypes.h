@@ -46,6 +46,18 @@ namespace AdaptiveLogRecordType
 	/** What happened after an intervention: its need and outcome features before, at the end and after (#23) */
 	inline const FString Outcome = TEXT("outcome");
 
+	/** How long an intervention took from the need's threshold to the screen, per step (#25) */
+	inline const FString Latency = TEXT("latency");
+
+	/** The pipeline's cost per update and per stage over the last window, with the frame times (#25) */
+	inline const FString Perf = TEXT("perf");
+
+	/** One update that took longer than SpikeThreshold, with its stages' times (#25) */
+	inline const FString PerfSpike = TEXT("perf_spike");
+
+	/** The same over the whole session, right before session_end (#25) */
+	inline const FString PerfSummary = TEXT("perf_summary");
+
 	/** Selection decided: the chosen action or "none", why, and how every action was rated */
 	inline const FString Selection = TEXT("selection");
 

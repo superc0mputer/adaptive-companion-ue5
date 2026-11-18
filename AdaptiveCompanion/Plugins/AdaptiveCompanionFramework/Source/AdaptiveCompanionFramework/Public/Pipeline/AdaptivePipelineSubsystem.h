@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Containers/Ticker.h"
+#include "Pipeline/AdaptivePerfMonitor.h"
 #include "Pipeline/AdaptivePipelineFrame.h"
 #include "Replay/AdaptiveInputRecording.h"
 #include "AdaptivePipelineSubsystem.generated.h"
@@ -120,6 +121,9 @@ public:
 	/** The frame of the most recent update */
 	const FAdaptivePipelineFrame& GetLastFrame() const { return Frame; }
 
+	/** The cost measurements (#25); empty if bMeasurePerformance is off */
+	const FAdaptivePerfMonitor& GetPerf() const { return Perf; }
+
 	/** nullptr if logging is disabled */
 	UAdaptiveLogSubsystem* GetLog() const { return Log; }
 	UAdaptiveDebugSubsystem* GetDebug() const { return Debug; }
@@ -169,4 +173,23 @@ protected:
 	FAdaptiveInputRecorder Recorder;
 	TArray<FAdaptiveRecordedPhase> PhasesBefore;
 	TArray<FAdaptiveRecordedPhase> PhasesDuring;
+
+	/** Cost measurements (#25) */
+	void OnSessionEnding();
+	void LogPerfWindow(double Now);
+
+	/** Adds the time since construction to the API time, for calls from the game outside updates */
+	struct FApiTimer
+	{
+		explicit FApiTimer(UAdaptivePipelineSubsystem& InPipeline);
+		~FApiTimer();
+		UAdaptivePipelineSubsystem* Pipeline = nullptr;
+		uint64 StartCycles = 0;
+	};
+
+	bool bMeasuring = false;
+	TArray<FString> PerfPartNames;
+	FAdaptivePerfMonitor Perf;
+	double PerfWindowStart = 0.0;
+	double PerfStart = 0.0;
 };

@@ -12,20 +12,22 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 
+FString UAdaptiveReplayCommandlet::ResolveLog(const FString& Name)
+{
+	const FString Directory = GetDefault<UAdaptiveLogSettings>()->GetLogDirectoryPath();
+	for (const FString& Candidate : { Name, FPaths::Combine(FPaths::ProjectDir(), Name), FPaths::Combine(FPaths::ProjectDir(), TEXT(".."), Name),
+		FPaths::Combine(Directory, Name), FPaths::Combine(Directory, Name + TEXT(".jsonl")) })
+	{
+		if (FPaths::FileExists(Candidate))
+		{
+			return FPaths::ConvertRelativePathToFull(Candidate);
+		}
+	}
+	return FString();
+}
+
 namespace
 {
-	FString ResolveLog(const FString& Name)
-	{
-		const FString Directory = GetDefault<UAdaptiveLogSettings>()->GetLogDirectoryPath();
-		for (const FString& Candidate : { Name, FPaths::Combine(FPaths::ProjectDir(), Name), FPaths::Combine(Directory, Name), FPaths::Combine(Directory, Name + TEXT(".jsonl")) })
-		{
-			if (FPaths::FileExists(Candidate))
-			{
-				return FPaths::ConvertRelativePathToFull(Candidate);
-			}
-		}
-		return FString();
-	}
 
 	FString ToLine(const TSharedRef<FJsonObject>& Object)
 	{

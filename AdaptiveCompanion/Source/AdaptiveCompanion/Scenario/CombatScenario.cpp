@@ -5,7 +5,10 @@
 #include "AdaptiveCompanion.h"
 #include "Components/SceneComponent.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
+#include "HAL/IConsoleManager.h"
+#include "NavigationSystem.h"
 #include "TimerManager.h"
 
 namespace CombatScenario
@@ -106,6 +109,9 @@ void ACombatScenario::OnPossessedPawnChanged(APawn* OldPawn, APawn* NewPawn)
 
 void ACombatScenario::OnPlayerDied()
 {
+	// the extra enemies' AI queries the player pawn, which is gone until the respawn; they return with the next wave start
+	RemoveExtraEnemies(true);
+
 	if (WaveIndex >= Waves.Num())
 	{
 		return;
@@ -176,6 +182,7 @@ void ACombatScenario::StartWave()
 		}
 	}
 	EnemiesLeft = WaveEnemies.Num();
+	SpawnExtraEnemies();
 
 	LogPhase(GetCurrentPhase(), bRestarting ? TEXT("restarted") : TEXT("started"));
 	bRestarting = false;
@@ -231,3 +238,95 @@ void ACombatScenario::LogPhase(FName Phase, const TCHAR* Event) const
 		Payload.SetNumberField(TEXT("enemies_left"), EnemiesLeft);
 	});
 }
+
+int32 ACombatScenario::SetExtraEnemies(int32 Count, float Radius)
+{
+	ExtraEnemyCount = FMath::Max(0, Count);
+	ExtraEnemyRadius = Radius;
+	RemoveExtraEnemies();
+	if (!bWaitingForRespawn)
+	{
+		SpawnExtraEnemies();
+	}
+
+	ScenarioLog::Write(this, ScenarioName, GetCurrentPhase(), TEXT("extra_enemies"),
+		FString::Printf(TEXT("%s, %d extra enemies"), *GetCurrentPhase().ToString(), ExtraEnemies.Num()),
+		[this](FJsonObject& Fields) { Fields.SetNumberField(TEXT("extra_enemies"), ExtraEnemies.Num()); });
+	UE_LOG(LogAdaptiveCompanion, Display, TEXT("%s: %d extra enemies (asked for %d)."), *GetName(), ExtraEnemies.Num(), Count);
+	return ExtraEnemies.Num();
+}
+
+void ACombatScenario::RemoveExtraEnemies(bool bNextTick)
+{
+	TArray<TWeakObjectPtr<ACombatEnemy>> Removed;
+	for (ACombatEnemy* Enemy : ExtraEnemies)
+	{
+		Removed.Add(Enemy);
+	}
+	ExtraEnemies.Reset();
+
+	auto DestroyAll = [Removed]()
+	{
+		for (const TWeakObjectPtr<ACombatEnemy>& Enemy : Removed)
+		{
+			if (Enemy.IsValid())
+			{
+				Enemy->Destroy();
+			}
+		}
+	};
+	if (bNextTick)
+	{
+		// like the wave's enemies (OnPlayerDied): an attack trace may still iterate over them
+		GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, DestroyAll));
+	}
+	else
+	{
+		DestroyAll();
+	}
+}
+
+void ACombatScenario::SpawnExtraEnemies()
+{
+	UWorld* World = GetWorld();
+	UNavigationSystemV1* Navigation = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
+	if (!EnemyClass || !Navigation)
+	{
+		return;
+	}
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+	while (ExtraEnemies.Num() < ExtraEnemyCount)
+	{
+		FNavLocation Point;
+		if (!Navigation->GetRandomReachablePointInRadius(GetActorLocation(), ExtraEnemyRadius, Point))
+		{
+			return;
+		}
+		// the capsule's half height above the navmesh, facing the arena center
+		const FVector Location = Point.Location + FVector(0.0, 0.0, 100.0);
+		const FRotator Facing(0.0, (GetActorLocation() - Location).Rotation().Yaw, 0.0);
+		ACombatEnemy* Enemy = World->SpawnActor<ACombatEnemy>(EnemyClass, Location, Facing, SpawnParams);
+		if (!Enemy)
+		{
+			return;
+		}
+		ExtraEnemies.Add(Enemy);
+	}
+}
+
+static FAutoConsoleCommandWithWorldAndArgs GScenarioExtraEnemiesCommand(
+	TEXT("Scenario.ExtraEnemies"),
+	TEXT("Scenario.ExtraEnemies <Count>: spawns Count enemies in the combat scenario outside its waves, as heavy load for the measurements (#25). 0 removes them."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+	{
+		const int32 Count = Args.IsEmpty() ? 0 : FCString::Atoi(*Args[0]);
+		TActorIterator<ACombatScenario> It(World);
+		if (It)
+		{
+			It->SetExtraEnemies(FMath::Max(0, Count));
+			return;
+		}
+		UE_LOG(LogAdaptiveCompanion, Warning, TEXT("Scenario.ExtraEnemies: no combat scenario in this level."));
+	}));

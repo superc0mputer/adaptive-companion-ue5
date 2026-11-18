@@ -22,7 +22,11 @@ public class AdaptiveCompanionFramework : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[] {
 			"EngineSettings",
-			"Projects"
+			"Projects",
+			"RenderCore",
+			"RHI",
+			"Slate",
+			"SlateCore"
 		});
 	}
 }
