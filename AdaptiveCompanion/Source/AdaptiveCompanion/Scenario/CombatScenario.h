@@ -69,6 +69,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scenario|Testing", meta = (ClampMin = "0"))
 	int32 FirstWave = 0;
 
+	/**
+	 *  Heavy load for the measurements (#25): spawns Count enemies at random reachable points within
+	 *  Radius of the scenario, outside its waves, so they don't count for clearing one. Like a wave's
+	 *  enemies they are removed when the player dies (the enemies' AI needs a player pawn) and spawn
+	 *  again when the wave restarts. Count 0 removes them. Logged as a scenario record (event
+	 *  "extra_enemies"). Console: Scenario.ExtraEnemies <Count>
+	 */
+	int32 SetExtraEnemies(int32 Count, float Radius = 1200.f);
+
 protected:
 
 	virtual void BeginPlay() override;
@@ -102,6 +111,16 @@ protected:
 
 	UPROPERTY()
 	TArray<TObjectPtr<ACombatEnemy>> WaveEnemies;
+
+	UPROPERTY()
+	TArray<TObjectPtr<ACombatEnemy>> ExtraEnemies;
+
+	int32 ExtraEnemyCount = 0;
+	float ExtraEnemyRadius = 1200.f;
+
+	void SpawnExtraEnemies();
+	/** bNextTick: destroy them on the next tick, as when the player died inside an enemy's attack trace */
+	void RemoveExtraEnemies(bool bNextTick = false);
 
 	int32 EnemiesLeft = 0;
 
