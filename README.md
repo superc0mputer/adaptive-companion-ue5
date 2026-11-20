@@ -143,6 +143,12 @@ the pipeline took about 1 % of the game thread, almost all of it for the session
 game's action checks. Details:
 [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md).
 
+`analysis/analyze.py` turns session logs into plots and tables without the game: per session a
+timeline of the needs, their levels and the interventions (with the replay's needs on top, for
+tuning), and across sessions the time each need spent Elevated inside and outside labeled
+situations, the interventions and their outcomes, the replay's agreement with the labels and the
+latency and cost tables. Details: [docs/ANALYSIS.md](docs/ANALYSIS.md).
+
 `ac.Debug 1` in the console shows a debug overlay with the pipeline's live values;
 `ac.Debug.Demo` fills it with test values. Details: [docs/DEBUG_OVERLAY.md](docs/DEBUG_OVERLAY.md).
 
@@ -160,8 +166,9 @@ game's action checks. Details:
 | `AdaptiveCompanion/Content/Companion/` | Our own assets (`BP_Companion`, `ST_Companion`, `DA_PipelineConfig`), stored via Git LFS |
 | `AdaptiveCompanion/Content/Scenarios/` | Our own test levels (`Lvl_CombatScenario`, `Lvl_NavigationScenario`), stored via Git LFS |
 | `Recordings/` | Labeled example recordings (session logs) for replays |
+| `analysis/` | Python scripts that turn session logs into plots and tables |
 | `Scripts/` | Setup scripts, `rebuild_editor.sh` (quit the editor, build, reopen it) |
-| `docs/` | Architecture, pipeline, scenarios, assets, logging, replay, measurements and debug overlay documentation |
+| `docs/` | Architecture, pipeline, scenarios, assets, logging, replay, measurements, log analysis and debug overlay documentation |
 
 The framework lives in its own runtime plugin so it can be reused in other UE5 projects; the
 game module depends on it, never the other way round. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

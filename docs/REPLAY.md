@@ -116,7 +116,7 @@ the script logs `ac.Log.Marker label <needs> | <actions> | <note>` when a situat
 | Every update or only changes | A record every update, with only the changed inputs | The update times are needed for identical feature windows; the changes keep it small |
 | Which config | The current one, not the one recorded | Trying changed rules and weights on the same recordings is what tuning (#16) and the estimators (#46, #47) need. `recorded_config` in the summary says which one the session used |
 | The game in a replay | Its answers and phases replayed as recorded | Simulating the companion and the enemies would need the game. With the recorded config the replay selects what the live session did, so the recorded phases fit |
-| Where labels are compared | In the commandlet | The loop from recording to agreement closes in one command; the wider analysis across sessions is #27 |
+| Where labels are compared | In the commandlet | The loop from recording to agreement closes in one command; the wider analysis across sessions is `analysis/analyze.py` ([ANALYSIS.md](ANALYSIS.md)), which also plots a replay over its live session |
 
 **Limits.** After changing the config, the replay can select interventions the live session
 didn't, or at other times. The game's phases are then still the recorded ones, so whether an

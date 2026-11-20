@@ -129,7 +129,8 @@ reads the measurement records of one or more session logs and writes, by default
 | `perf_summary.csv` | One per session |
 | `measurements.md` | Both summaries as Markdown tables |
 
-The benchmark writes `benchmark.csv` and `benchmark.md` to the same folder. Missing values are
+`analysis/analyze.py` computes the same tables from the logs without Unreal, alongside its plots
+([ANALYSIS.md](ANALYSIS.md)). The benchmark writes `benchmark.csv` and `benchmark.md` to the same folder. Missing values are
 empty cells. `-Logs` takes files, folders (every `.jsonl` in them except replay output) and session
 ids, separated by commas.
 
